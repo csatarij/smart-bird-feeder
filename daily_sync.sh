@@ -1,11 +1,11 @@
 #!/bin/bash
 # Daily GitHub sync — add to crontab:
-# 0 22 * * * /home/pi/smart-bird-feeder/scripts/daily_sync.sh >> /home/pi/smart-bird-feeder/data/sync.log 2>&1
+# 0 22 * * * /home/pi/smart-bird-feeder/daily_sync.sh >> /home/pi/smart-bird-feeder/data/sync.log 2>&1
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$SCRIPT_DIR"
 
 cd "$PROJECT_DIR"
 source "$PROJECT_DIR/venv/bin/activate"

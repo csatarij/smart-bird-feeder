@@ -246,7 +246,7 @@ class BirdClassifier:
         if not model_path.exists():
             self.logger.error(
                 f"Model not found at {model_path}. "
-                f"Run: python3 scripts/download_model.py"
+                f"Run: python3 download_model.py"
             )
             return False
 
