@@ -1,0 +1,20 @@
+[Unit]
+Description=Smart Bird Feeder — Species Classifier
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/smart-bird-feeder
+ExecStart=/home/pi/smart-bird-feeder/venv/bin/python3 src/classifier.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Classifier is CPU-heavy but runs infrequently; Nice it down
+Nice=10
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

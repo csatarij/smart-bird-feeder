@@ -1,0 +1,33 @@
+# Smart Bird Feeder — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# ---------- Core (required) ----------
+
+# Image processing
+Pillow>=9.0
+piexif>=1.1.3
+
+# Configuration
+PyYAML>=6.0
+
+# Testing
+pytest>=7.0
+
+# Scheduling (optional, for non-systemd setups)
+schedule>=1.1
+
+# ---------- Installed via apt (not pip) ----------
+# These are ARM-optimised system packages — do NOT install via pip on Pi:
+#   sudo apt install python3-opencv python3-numpy python3-pil
+#
+# OpenCV's DNN module (4.8+) is the PRIMARY inference backend.
+# It loads .tflite models directly — no tflite-runtime needed.
+
+# ---------- Optional: TFLite backend ----------
+# Only needed if you prefer TFLite over OpenCV DNN.
+# WARNING: No armv6l wheels exist. Only works on armv7l+ / aarch64.
+# tflite-runtime; platform_machine != "x86_64"
+
+# ---------- Notes ----------
+# picamera2 is installed via apt: sudo apt install python3-picamera2
+# On Trixie (Debian 13): use libopenblas-dev instead of libatlas-base-dev

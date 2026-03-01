@@ -1,0 +1,88 @@
+# Smart Bird Feeder Configuration
+# Adjust these values to match your hardware setup and environment.
+
+camera:
+  # "picamera" for Raspberry Pi Camera Module, "usb" for USB webcam
+  type: "picamera"
+  resolution_width: 640
+  resolution_height: 480
+  framerate: 10
+  # Rotation in degrees (0, 90, 180, 270)
+  rotation: 0
+  # Warm-up time in seconds (let the camera adjust exposure)
+  warmup_seconds: 3
+
+motion:
+  # Region of Interest — crop area around the feeder (x, y, width, height as fractions 0.0-1.0)
+  # This is the ONLY area the system ever analyzes or saves. Everything outside is discarded.
+  # Adjust to frame just your bird feeder.
+  roi:
+    x: 0.1
+    y: 0.1
+    width: 0.8
+    height: 0.8
+  # Minimum percentage of ROI pixels that must change to trigger a capture
+  sensitivity_percent: 3.0
+  # Minimum seconds between captures (prevents burst-saving the same bird)
+  cooldown_seconds: 10
+  # Gaussian blur kernel size for noise reduction (must be odd)
+  blur_kernel: 21
+  # Threshold for pixel difference (0-255)
+  diff_threshold: 30
+
+classifier:
+  # Path to TFLite model and labels
+  model_path: "models/bird_model.tflite"
+  labels_path: "models/bird_labels.txt"
+  # Minimum confidence score to accept a classification (0.0-1.0)
+  confidence_threshold: 0.3
+  # Input image size expected by the model
+  input_size: 224
+  # How often to check the capture queue (seconds)
+  poll_interval: 5
+  # Number of top predictions to store
+  top_k: 3
+
+storage:
+  # Base data directory
+  data_dir: "data"
+  captures_dir: "data/captures"
+  classified_dir: "data/classified"
+  stats_dir: "data/stats"
+  database_path: "data/birds.db"
+  # Maximum disk usage for photos in MB (oldest are pruned first)
+  max_storage_mb: 2000
+  # Keep only the best photo per visit (highest classification confidence)
+  keep_best_only: false
+
+privacy:
+  # Strip EXIF metadata from all saved images
+  strip_exif: true
+  # Apply Gaussian blur to areas outside the ROI (in case ROI doesn't perfectly crop)
+  blur_outside_roi: true
+  # Never save the full-frame image (only the ROI crop)
+  crop_to_roi_only: true
+  # Maximum image dimension for saved photos (resize down to save space and remove detail)
+  max_saved_dimension: 640
+
+github:
+  # Enable automatic GitHub sync
+  enabled: false
+  # Repository URL (SSH recommended for key-based auth)
+  repo_url: "git@github.com:YOUR_USERNAME/bird-feeder-data.git"
+  # Branch name
+  branch: "main"
+  # What to sync
+  sync_photos: true
+  sync_stats: true
+  # Maximum photos to upload per day (bandwidth consideration)
+  max_daily_uploads: 20
+  # Commit message template
+  commit_template: "Daily bird update: {date} — {count} sightings"
+
+logging:
+  level: "INFO"
+  # Log to file (rotated daily, max 7 days)
+  file: "data/bird_feeder.log"
+  max_bytes: 5242880  # 5MB
+  backup_count: 3

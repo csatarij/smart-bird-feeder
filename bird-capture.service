@@ -1,0 +1,21 @@
+[Unit]
+Description=Smart Bird Feeder — Motion Capture
+After=network.target
+Wants=bird-classify.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/smart-bird-feeder
+ExecStart=/home/pi/smart-bird-feeder/venv/bin/python3 src/motion_detector.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits suitable for Pi 1B
+MemoryMax=200M
+CPUQuota=60%
+
+[Install]
+WantedBy=multi-user.target
