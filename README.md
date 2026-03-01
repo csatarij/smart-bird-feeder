@@ -100,7 +100,7 @@ mkdir -p ~/smart-bird-feeder/models
 cd ~/smart-bird-feeder/models
 
 # Download the iNaturalist bird model (or use the provided script)
-python3 ../scripts/download_model.py
+python3 ../download_model.py
 ```
 
 ### 3. Configure
@@ -117,7 +117,7 @@ python3 src/motion_detector.py &
 python3 src/classifier.py &
 
 # Or use the systemd services (recommended)
-sudo cp scripts/*.service /etc/systemd/system/
+sudo cp *.service /etc/systemd/system/
 sudo systemctl enable --now bird-capture bird-classify
 ```
 
@@ -137,12 +137,11 @@ smart-bird-feeder/
 │   ├── privacy.py             # ROI crop, EXIF strip, blur
 │   ├── github_sync.py         # Push results to GitHub
 │   └── utils.py               # Shared utilities
-├── scripts/
-│   ├── download_model.py      # Fetch TFLite model + labels
-│   ├── setup.sh               # One-shot setup script
-│   ├── bird-capture.service   # systemd unit
-│   ├── bird-classify.service  # systemd unit
-│   └── daily_sync.sh          # Cron script for GitHub push
+├── download_model.py          # Fetch TFLite model + labels
+├── setup.sh                   # One-shot setup script
+├── bird-capture.service       # systemd unit
+├── bird-classify.service      # systemd unit
+├── daily_sync.sh              # Cron script for GitHub push
 ├── models/                    # TFLite model + labels (gitignored)
 ├── data/
 │   ├── captures/              # Raw motion-triggered snapshots (queue)

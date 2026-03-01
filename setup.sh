@@ -53,7 +53,7 @@ mkdir -p "$PROJECT_DIR/models"
 # 5. Download model
 echo ""
 echo "[5/6] Model setup..."
-python3 "$PROJECT_DIR/scripts/download_model.py"
+python3 "$PROJECT_DIR/download_model.py"
 
 # 6. systemd services (optional)
 echo ""
@@ -63,7 +63,7 @@ if [[ "$install_services" =~ ^[Yy]$ ]]; then
     # Update paths in service files
     for service in bird-capture bird-classify; do
         sed "s|/home/pi/smart-bird-feeder|$PROJECT_DIR|g" \
-            "$PROJECT_DIR/scripts/${service}.service" | \
+            "$PROJECT_DIR/${service}.service" | \
             sudo tee "/etc/systemd/system/${service}.service" > /dev/null
     done
     sudo systemctl daemon-reload
