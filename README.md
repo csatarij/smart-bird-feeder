@@ -2,12 +2,6 @@
 
 An offline, privacy-first smart bird feeder that detects birds, photographs them, classifies species using on-device ML, and generates statistics — all running on a Raspberry Pi 1 Model B.
 
-## Why This Project?
-
-This project demonstrates practical IoT skills: embedded Linux, edge ML inference on constrained hardware, computer vision, data pipelines, system automation, and privacy-by-design architecture — all on a $25 single-board computer from 2012.
-
----
-
 ## Hardware
 
 | Component | Details |
@@ -172,22 +166,22 @@ smart-bird-feeder/
 
 ## Enhancement Roadmap
 
-Each of these extensions adds a demonstrable skill to your portfolio. They're ordered roughly by effort and impact.
+Ordered roughly by effort and impact.
 
-### Phase 2 — Better ML (Weeks 3-4)
+### Phase 2 — Better ML
 
-- [ ] **Fine-tune on local species**: Use transfer learning (MobileNetV1 → your top 20 local species) with TensorFlow on a desktop PC, export INT8 TFLite. Document the training pipeline in a Jupyter notebook — this alone is a strong portfolio piece.
+- [ ] **Fine-tune on local species**: Use transfer learning (MobileNetV1 → your top 20 local species) with TensorFlow on a desktop PC, export INT8 TFLite.
 - [ ] **Add audio classification with BirdNET**: Cornell's BirdNET TFLite model identifies birds by song. Fuse audio + visual confidence for much higher accuracy. Requires a USB microphone (~$5).
-- [ ] **Confidence calibration**: Track and plot model confidence vs. accuracy over time. Show that you understand model reliability, not just accuracy.
+- [ ] **Confidence calibration**: Track and plot model confidence vs. accuracy over time.
 
-### Phase 3 — IoT & Embedded Skills (Weeks 5-6)
+### Phase 3 — IoT & Embedded Skills
 
-- [ ] **MQTT telemetry**: Publish sightings to a local MQTT broker (Mosquitto). Demonstrates IoT protocol knowledge.
+- [ ] **MQTT telemetry**: Publish sightings to a local MQTT broker (Mosquitto).
 - [ ] **Environmental sensors**: Add a BME280 (temperature, humidity, pressure) via I2C. Correlate weather with bird activity — "Blue Tits visit 40% more on rainy mornings."
-- [ ] **Power monitoring**: Log CPU temperature and power draw over time with `vcgencmd`. Show you understand thermal management on embedded devices.
-- [ ] **OTA updates**: Implement a simple self-update mechanism (Git pull + systemd restart). Shows operational thinking.
+- [ ] **Power monitoring**: Log CPU temperature and power draw over time with `vcgencmd`.
+- [ ] **OTA updates**: Implement a simple self-update mechanism (Git pull + systemd restart).
 
-### Phase 4 — Data & Visualization (Weeks 7-8)
+### Phase 4 — Data & Visualization
 
 - [ ] **GitHub Pages dashboard**: Auto-generate a static site (Chart.js or D3.js) from your JSON stats. Push to GitHub Pages — viewers see live bird data without any server.
 - [ ] **Species activity heatmap**: Time-of-day × species matrix showing when each species is most active.
@@ -196,9 +190,9 @@ Each of these extensions adds a demonstrable skill to your portfolio. They're or
 
 ### Phase 5 — Advanced Architecture (Ongoing)
 
-- [ ] **Edge-to-hub offload**: Keep the Pi as a thin capture device; send images over LAN to a more powerful classifier (Jetson Nano, old laptop). Demonstrates distributed IoT architecture while maintaining privacy.
+- [ ] **Edge-to-hub offload**: Keep the Pi as a thin capture device; send images over LAN to a more powerful classifier (Jetson Nano, old laptop).
 - [ ] **Multi-feeder mesh**: Support multiple Pi cameras feeding into a single classifier/dashboard. Uses mDNS for zero-config discovery.
-- [ ] **Container deployment**: Package the entire stack in Docker (with Balena for Pi fleet management). Shows DevOps skills.
+- [ ] **Container deployment**: Package the entire stack in Docker (with Balena for Pi fleet management).
 - [ ] **CI/CD pipeline**: GitHub Actions to lint, test, and build on every push. Auto-generate release artifacts.
 - [ ] **Prometheus + Grafana monitoring**: Export system metrics (CPU, RAM, disk, capture rate) to Prometheus. Build a Grafana dashboard showing system health alongside bird data.
 
@@ -223,8 +217,6 @@ Yes — with caveats. Here's an honest assessment:
 | **TFLite on ARMv6** | The official `tflite-runtime` has no armv6l wheels, and Trixie's Python 3.13 has no community builds. We use OpenCV DNN (4.8+) instead, which loads `.tflite` models natively — zero extra dependencies. |
 | **Reliability** | Runs 24/7 for months without issues if you manage memory carefully and use systemd for auto-restart. |
 | **Alternative** | For faster classification, the Phase 5 edge-to-hub offload sends photos to a LAN machine. Still fully offline and private. |
-
-The engineering challenge of making ML work on extreme hardware is itself the portfolio piece. Any interviewer who works with IoT or edge computing will appreciate the constraints you navigated.
 
 ---
 
