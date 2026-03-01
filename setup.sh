@@ -1,11 +1,11 @@
 #!/bin/bash
 # Smart Bird Feeder — One-shot setup script
-# Run: chmod +x scripts/setup.sh && ./scripts/setup.sh
+# Run: chmod +x setup.sh && ./setup.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$SCRIPT_DIR"
 
 echo "================================================"
 echo " Smart Bird Feeder Setup"
@@ -63,7 +63,7 @@ if [[ "$install_services" =~ ^[Yy]$ ]]; then
     # Update paths in service files
     for service in bird-capture bird-classify; do
         sed "s|/home/pi/smart-bird-feeder|$PROJECT_DIR|g" \
-            "$SCRIPT_DIR/${service}.service" | \
+            "$PROJECT_DIR/scripts/${service}.service" | \
             sudo tee "/etc/systemd/system/${service}.service" > /dev/null
     done
     sudo systemctl daemon-reload
