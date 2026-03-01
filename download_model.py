@@ -165,7 +165,7 @@ def main():
             # For ImageNet, download ImageNet labels
             labels_url = (
                 "https://storage.googleapis.com/download.tensorflow.org/"
-                "models/mobilenet_v1_1.0_224/labels.txt"
+                "data/ImageNetLabels.txt"
             )
             download_file(
                 labels_url,
