@@ -91,8 +91,8 @@ sudo apt-get install -y python3-pip python3-venv python3-opencv \
     python3-picamera2 python3-numpy python3-pil sqlite3 git libopenblas-dev
 
 # Create project venv (--system-site-packages to reuse apt-installed opencv/numpy)
-python3 -m venv --system-site-packages ~/bird-feeder-env
-source ~/bird-feeder-env/bin/activate
+python3 -m venv --system-site-packages ~/smart-bird-feeder-env
+source ~/smart-bird-feeder-env/bin/activate
 
 # Install Python packages (tflite-runtime is NOT needed — OpenCV DNN handles inference)
 pip install Pillow piexif PyYAML schedule
