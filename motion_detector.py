@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import shutil
 import signal
 import sys
 import time
@@ -24,6 +25,9 @@ import numpy as np
 
 from privacy import extract_roi, save_private_image
 from utils import load_config, setup_logging, ensure_directories, PROJECT_ROOT
+
+# Minimum free disk space in MB before we stop saving snapshots
+MIN_FREE_DISK_MB = 200
 
 
 class MotionDetector:
@@ -92,6 +96,7 @@ class MotionDetector:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         if not cap.isOpened():
+            cap.release()
             self.logger.error("Failed to open camera!")
             sys.exit(1)
         time.sleep(self.cam_cfg.get("warmup_seconds", 3))
@@ -159,9 +164,24 @@ class MotionDetector:
         cooldown = self.motion_cfg.get("cooldown_seconds", 10)
         return (time.time() - self.last_capture_time) < cooldown
 
+    def _check_disk_space(self) -> bool:
+        """Return True if there is enough free disk space to save a snapshot."""
+        usage = shutil.disk_usage(str(self.captures_dir))
+        free_mb = usage.free / (1024 * 1024)
+        if free_mb < MIN_FREE_DISK_MB:
+            self.logger.warning(
+                f"Low disk space: {free_mb:.0f}MB free (need {MIN_FREE_DISK_MB}MB). "
+                f"Skipping capture."
+            )
+            return False
+        return True
+
     def save_snapshot(self, frame: np.ndarray) -> Path | None:
         """Save a privacy-processed snapshot to the captures queue."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if not self._check_disk_space():
+            return None
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"bird_{timestamp}.jpg"
         output_path = self.captures_dir / filename
 

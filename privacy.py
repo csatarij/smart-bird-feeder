@@ -48,10 +48,10 @@ def blur_outside_roi(frame: np.ndarray, roi_config: dict, ksize: int = 51) -> np
     import cv2
 
     h, w = frame.shape[:2]
-    x1 = int(w * roi_config["x"])
-    y1 = int(h * roi_config["y"])
-    x2 = int(x1 + w * roi_config["width"])
-    y2 = int(y1 + h * roi_config["height"])
+    x1 = max(0, int(w * roi_config["x"]))
+    y1 = max(0, int(h * roi_config["y"]))
+    x2 = min(w, int(x1 + w * roi_config["width"]))
+    y2 = min(h, int(y1 + h * roi_config["height"]))
 
     blurred = cv2.GaussianBlur(frame, (ksize, ksize), 0)
     # Paste the sharp ROI back onto the blurred frame
