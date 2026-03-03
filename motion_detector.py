@@ -9,7 +9,7 @@ Design for Pi 1B:
 - Saves images through the privacy pipeline (crop, strip, resize).
 
 Usage:
-    python3 src/motion_detector.py [--config config/settings.yaml]
+    python3 motion_detector.py [--config settings.yaml]
 """
 
 import argparse
@@ -22,11 +22,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.privacy import extract_roi, save_private_image
-from src.utils import load_config, setup_logging, ensure_directories, PROJECT_ROOT
+from privacy import extract_roi, save_private_image
+from utils import load_config, setup_logging, ensure_directories, PROJECT_ROOT
 
 
 class MotionDetector:

@@ -2,18 +2,17 @@
 
 import logging
 import logging.handlers
-import os
 import sys
 import yaml
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 def load_config(config_path: str | None = None) -> dict:
     """Load YAML configuration file."""
     if config_path is None:
-        config_path = PROJECT_ROOT / "config" / "settings.yaml"
+        config_path = PROJECT_ROOT / "settings.yaml"
     else:
         config_path = Path(config_path)
 
@@ -32,6 +31,9 @@ def setup_logging(config: dict) -> logging.Logger:
 
     logger = logging.getLogger("bird_feeder")
     logger.setLevel(level)
+
+    if logger.handlers:
+        return logger
 
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -79,11 +81,21 @@ def get_disk_usage_mb(directory: str | Path) -> float:
 def prune_old_files(directory: str | Path, max_mb: float) -> int:
     """Delete oldest files until directory is under max_mb. Returns count deleted."""
     directory = Path(directory)
+    usage_bytes = sum(
+        f.stat().st_size for f in directory.rglob("*") if f.is_file()
+    ) if directory.exists() else 0
+    max_bytes = max_mb * 1024 * 1024
+
+    if usage_bytes <= max_bytes:
+        return 0
+
+    files = sorted(directory.rglob("*.jpg"), key=lambda f: f.stat().st_mtime)
     deleted = 0
-    while get_disk_usage_mb(directory) > max_mb:
-        files = sorted(directory.rglob("*.jpg"), key=lambda f: f.stat().st_mtime)
-        if not files:
+    for f in files:
+        if usage_bytes <= max_bytes:
             break
-        files[0].unlink()
+        size = f.stat().st_size
+        f.unlink()
+        usage_bytes -= size
         deleted += 1
     return deleted

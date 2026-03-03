@@ -9,22 +9,19 @@ Privacy notes:
 - Uses SSH key authentication (no passwords in config).
 
 Usage:
-    python3 src/github_sync.py [--config config/settings.yaml]
-    # Or via cron: 0 22 * * * cd ~/smart-bird-feeder && python3 src/github_sync.py
+    python3 github_sync.py [--config settings.yaml]
+    # Or via cron: 0 22 * * * cd ~/smart-bird-feeder && python3 github_sync.py
 """
 
 import argparse
 import json
 import shutil
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.stats_engine import StatsEngine
-from src.utils import load_config, setup_logging, PROJECT_ROOT
+from stats_engine import StatsEngine
+from utils import load_config, setup_logging, PROJECT_ROOT
 
 
 class GitHubSync:
@@ -73,6 +70,7 @@ class GitHubSync:
             ok, out = self._run_git("pull", "--rebase")
             if not ok:
                 self.logger.warning(f"Git pull failed: {out}")
+                return False
             return True
 
         # Clone the repo

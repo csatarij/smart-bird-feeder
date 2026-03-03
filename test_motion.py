@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """Tests for the motion detection module."""
 
-import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.motion_detector import MotionDetector
-from src.utils import load_config
+from motion_detector import MotionDetector
+from utils import load_config
 
 
 @pytest.fixture

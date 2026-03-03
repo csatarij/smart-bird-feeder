@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for the bird classifier module."""
+"""Tests for the stats engine module."""
 
 import json
-import sys
 import tempfile
 from pathlib import Path
 
@@ -10,10 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.stats_engine import StatsEngine
-from src.utils import load_config
+from stats_engine import StatsEngine
+from utils import load_config
 
 
 @pytest.fixture
