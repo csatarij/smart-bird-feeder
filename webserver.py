@@ -36,6 +36,28 @@ STATS_DIR = None
 DB_PATH = None
 
 
+def _image_path_to_url(image_path: str | None) -> str | None:
+    """Convert a DB image_path to a /photos/... URL, or None if not resolvable."""
+    if not image_path:
+        return None
+    p = Path(image_path)
+    # Try to make path relative to the classified dir
+    try:
+        rel = p.resolve().relative_to(CLASSIFIED_DIR.resolve())
+        return f"/photos/{rel.as_posix()}"
+    except ValueError:
+        pass
+    # Search for 'classified' segment in the path parts
+    parts = p.parts
+    for i, part in enumerate(parts):
+        if part == "classified" and i + 1 < len(parts):
+            return "/photos/" + "/".join(parts[i + 1:])
+    # Last resort: assume the last two parts are <species>/<filename>
+    if len(parts) >= 2:
+        return f"/photos/{parts[-2]}/{parts[-1]}"
+    return None
+
+
 def get_health_data() -> dict:
     """Gather system health metrics."""
     disk = shutil.disk_usage(str(DATA_DIR))
@@ -258,33 +280,53 @@ STATS_HTML_TEMPLATE = """<!DOCTYPE html>
     .card { background: white; border-radius: 8px; padding: 1.5rem;
             margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
     .card h2 { color: #2e7d32; margin-bottom: 1.2rem; font-size: 1.1rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
-    .metric { text-align: center; padding: 1rem; background: #f9f9f9; border-radius: 6px; }
-    .metric .value { font-size: 2rem; font-weight: bold; color: #2e7d32; }
-    .metric .label { font-size: 0.85rem; color: #666; margin-top: 0.3rem; }
-    /* Species bars */
-    .species-row { display: flex; align-items: center; margin-bottom: 0.6rem; gap: 0.75rem; }
-    .species-name { min-width: 130px; font-size: 0.9rem; text-transform: capitalize; }
-    .bar-track { flex: 1; background: #e8f5e9; border-radius: 4px; height: 22px; overflow: hidden; }
+    /* Summary grid */
+    .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; }
+    @media (max-width: 600px) { .grid-5 { grid-template-columns: repeat(3, 1fr); } }
+    .metric { text-align: center; padding: 0.85rem 0.5rem; background: #f9f9f9; border-radius: 6px; }
+    .metric .value { font-size: 1.75rem; font-weight: bold; color: #2e7d32; }
+    .metric .label { font-size: 0.8rem; color: #666; margin-top: 0.25rem; }
+    .meta-row { margin-top: 0.85rem; font-size: 0.82rem; color: #777;
+                display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+    /* Species ranking */
+    .species-row { display: flex; align-items: center; margin-bottom: 0.5rem; gap: 0.6rem; }
+    .species-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 4px;
+                     flex-shrink: 0; transition: transform 0.15s; display: block; }
+    .species-thumb:hover { transform: scale(1.08); }
+    .species-thumb-ph { width: 44px; height: 44px; background: #e8f5e9;
+                        border-radius: 4px; flex-shrink: 0; }
+    .species-name { min-width: 110px; font-size: 0.88rem; text-transform: capitalize; }
+    .bar-track { flex: 1; background: #e8f5e9; border-radius: 4px; height: 20px; overflow: hidden; }
     .bar-fill { height: 100%; background: #4caf50; border-radius: 4px;
                 transition: width 0.4s ease; display: flex; align-items: center;
-                padding-left: 6px; min-width: 2px; }
-    .bar-count { font-size: 0.8rem; color: white; font-weight: 600; white-space: nowrap; }
-    .bar-count-outside { font-size: 0.8rem; color: #555; margin-left: 6px; }
-    /* Daily / hourly charts */
-    .chart { display: flex; align-items: flex-end; gap: 4px; height: 120px;
-             padding-top: 0.5rem; }
+                padding-left: 5px; min-width: 2px; }
+    .bar-count { font-size: 0.78rem; color: white; font-weight: 600; white-space: nowrap; }
+    .bar-count-out { font-size: 0.78rem; color: #555; margin-left: 5px; min-width: 1.5rem; }
+    /* Recent captures grid */
+    .capture-grid { display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+                    gap: 8px; }
+    .capture-cell { text-decoration: none; color: inherit; display: block;
+                    border-radius: 6px; overflow: hidden; background: #f9f9f9;
+                    transition: transform 0.15s; }
+    .capture-cell:hover { transform: scale(1.03); }
+    .capture-cell img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+    .capture-label { padding: 4px 5px; font-size: 0.72rem; line-height: 1.35; }
+    .capture-label strong { display: block; text-transform: capitalize; color: #2e7d32; }
+    /* Charts */
+    .chart { display: flex; align-items: flex-end; gap: 3px; height: 110px; padding-top: 0.5rem; }
     .chart-col { display: flex; flex-direction: column; align-items: center;
                  flex: 1; height: 100%; justify-content: flex-end; }
     .chart-bar { width: 100%; background: #81c784; border-radius: 3px 3px 0 0;
-                 min-height: 2px; transition: height 0.4s ease; }
-    .chart-bar:hover { background: #4caf50; }
-    .chart-label { font-size: 0.65rem; color: #888; margin-top: 3px; text-align: center; }
-    .chart-value { font-size: 0.65rem; color: #555; margin-bottom: 2px; }
-    .empty { color: #999; font-size: 0.9rem; padding: 1rem 0; }
+                 min-height: 0; transition: height 0.4s ease; }
+    .chart-bar.peak { background: #2e7d32; }
+    .chart-bar:hover { opacity: 0.8; }
+    .chart-label { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: center; }
+    .chart-value { font-size: 0.62rem; color: #555; margin-bottom: 1px; min-height: 10px; }
+    .chart-col:hover .chart-value { font-weight: 600; }
+    .empty { color: #999; font-size: 0.9rem; padding: 0.5rem 0; }
     .refresh-info { text-align: center; color: #999; font-size: 0.8rem; margin-top: 1rem; }
     .error { color: #f44336; }
-    .first-seen { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
 </style>
 </head>
 <body>
@@ -301,6 +343,14 @@ STATS_HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="refresh-info">Auto-refreshes every 60 seconds</div>
 </div>
 <script>
+function fmtHour(h) {
+    if (h === null || h === undefined) return '\u2014';
+    const ampm = h < 12 ? 'am' : 'pm';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return String(h).padStart(2, '0') + ':00\u2009(' + h12 + ampm + ')';
+}
+function fmtTs(ts) { return ts ? ts.replace('T', ' ').slice(0, 16) : ''; }
+
 function render(d) {
     if (d.error) {
         document.getElementById('content').innerHTML =
@@ -308,93 +358,118 @@ function render(d) {
         return;
     }
 
-    // --- Summary cards ---
-    const firstSeen = d.first_sighting
-        ? '<div class="first-seen">First sighting: ' + d.first_sighting + '</div>'
-        : '';
+    // ── Summary ──────────────────────────────────────────────────────────────
+    const madText = d.most_active_day
+        ? d.most_active_day.date + ' (' + d.most_active_day.count + ' captures)'
+        : '\u2014';
+    const metaParts = [];
+    if (d.first_sighting) metaParts.push('First sighting: <strong>' + d.first_sighting + '</strong>');
+    metaParts.push('Peak hour: <strong>' + fmtHour(d.peak_hour) + '</strong>');
+    metaParts.push('Busiest day: <strong>' + madText + '</strong>');
 
-    // --- Species ranking bars ---
-    const total = d.total_sightings || 1;
-    let speciesBars = '';
+    // ── Species ranking ───────────────────────────────────────────────────────
+    let speciesRows = '<div class="empty">No sightings recorded yet.</div>';
     if (d.species_ranking && d.species_ranking.length > 0) {
         const maxCount = d.species_ranking[0].count;
-        d.species_ranking.forEach(s => {
+        speciesRows = d.species_ranking.map(s => {
             const pct = maxCount > 0 ? Math.max(2, Math.round((s.count / maxCount) * 100)) : 2;
-            const label = s.count >= 4
-                ? '<span class="bar-count">' + s.count + '</span>'
-                : '';
-            const outside = s.count < 4
-                ? '<span class="bar-count-outside">' + s.count + '</span>'
-                : '';
-            speciesBars += '<div class="species-row">'
+            const thumbHTML = s.photo_url
+                ? '<a href="' + s.photo_url + '" target="_blank">'
+                  + '<img src="' + s.photo_url + '" class="species-thumb" loading="lazy"'
+                  + ' title="' + s.species + ' \u2014 best confidence: '
+                  + Math.round((s.best_confidence || 0) * 100) + '%"></a>'
+                : '<div class="species-thumb-ph"></div>';
+            const inBar  = s.count >= 5 ? '<span class="bar-count">'     + s.count + '</span>' : '';
+            const outBar = s.count <  5 ? '<span class="bar-count-out">' + s.count + '</span>' : '';
+            return '<div class="species-row">'
+                + thumbHTML
                 + '<span class="species-name">' + s.species.replace(/_/g, ' ') + '</span>'
                 + '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%">'
-                + label + '</div></div>' + outside
+                + inBar + '</div></div>' + outBar
                 + '</div>';
-        });
-    } else {
-        speciesBars = '<div class="empty">No sightings recorded yet.</div>';
+        }).join('');
     }
 
-    // --- Daily chart (last 14 days) ---
-    let dailyChart = '';
+    // ── Recent captures ───────────────────────────────────────────────────────
+    let captureGrid = '<div class="empty">No captured photos linked yet.</div>';
+    if (d.recent_captures && d.recent_captures.length > 0) {
+        const cells = d.recent_captures.map(c => {
+            const ts   = fmtTs(c.timestamp).slice(5); // MM-DD HH:MM
+            const conf = Math.round(c.confidence * 100) + '%';
+            return '<a href="' + c.photo_url + '" target="_blank" class="capture-cell">'
+                + '<img src="' + c.photo_url + '" loading="lazy" alt="' + c.species + '">'
+                + '<div class="capture-label"><strong>'
+                + c.species.replace(/_/g, ' ') + '</strong>'
+                + ts + '\u2009\u00b7\u2009' + conf
+                + '</div></a>';
+        }).join('');
+        captureGrid = '<div class="capture-grid">' + cells + '</div>';
+    }
+
+    // ── Daily chart (last 14 days) ─────────────────────────────────────────
+    let dailyChart = '<div class="empty">No data for the last 14 days.</div>';
     if (d.daily_counts && d.daily_counts.length > 0) {
-        const maxDaily = Math.max(...d.daily_counts.map(x => x.count), 1);
-        dailyChart = '<div class="chart">';
-        d.daily_counts.forEach(day => {
-            const h = Math.max(2, Math.round((day.count / maxDaily) * 100));
-            const shortDate = day.date.slice(5); // MM-DD
-            dailyChart += '<div class="chart-col">'
-                + '<span class="chart-value">' + day.count + '</span>'
-                + '<div class="chart-bar" style="height:' + h + '%" title="' + day.date + ': ' + day.count + '"></div>'
-                + '<span class="chart-label">' + shortDate + '</span>'
-                + '</div>';
-        });
-        dailyChart += '</div>';
-    } else {
-        dailyChart = '<div class="empty">No data for the last 14 days.</div>';
+        const maxD    = Math.max(...d.daily_counts.map(x => x.count), 1);
+        const peakDay = d.daily_counts.reduce((a, b) => b.count > a.count ? b : a).date;
+        dailyChart = '<div class="chart">'
+            + d.daily_counts.map(day => {
+                const h = Math.max(2, Math.round((day.count / maxD) * 100));
+                return '<div class="chart-col">'
+                    + '<span class="chart-value">' + day.count + '</span>'
+                    + '<div class="chart-bar' + (day.date === peakDay ? ' peak' : '')
+                    + '" style="height:' + h + '%" title="' + day.date + ': ' + day.count + ' captures"></div>'
+                    + '<span class="chart-label">' + day.date.slice(5) + '</span>'
+                    + '</div>';
+            }).join('')
+            + '</div>';
     }
 
-    // --- Hourly distribution chart ---
-    let hourlyChart = '';
+    // ── Hourly chart ──────────────────────────────────────────────────────────
+    let hourlyChart = '<div class="empty">No hourly data yet.</div>';
     if (d.hourly_distribution && Object.keys(d.hourly_distribution).length > 0) {
-        const hours = Array.from({length: 24}, (_, i) => i);
-        const counts = hours.map(h => d.hourly_distribution[String(h)] || 0);
-        const maxHourly = Math.max(...counts, 1);
-        hourlyChart = '<div class="chart">';
-        hours.forEach((h, i) => {
-            const barH = Math.max(counts[i] > 0 ? 2 : 0, Math.round((counts[i] / maxHourly) * 100));
-            const label = h % 3 === 0 ? String(h).padStart(2, '0') : '';
-            hourlyChart += '<div class="chart-col">'
-                + (counts[i] > 0 ? '<span class="chart-value">' + counts[i] + '</span>' : '<span class="chart-value">&nbsp;</span>')
-                + '<div class="chart-bar" style="height:' + barH + '%" title="' + h + ':00 — ' + counts[i] + ' sightings"></div>'
-                + '<span class="chart-label">' + label + '</span>'
-                + '</div>';
-        });
-        hourlyChart += '</div>';
-    } else {
-        hourlyChart = '<div class="empty">No hourly data yet.</div>';
+        const counts  = Array.from({length: 24}, (_, i) => d.hourly_distribution[String(i)] || 0);
+        const maxH    = Math.max(...counts, 1);
+        const peakH   = counts.indexOf(Math.max(...counts));
+        hourlyChart = '<div class="chart">'
+            + counts.map((cnt, h) => {
+                const barH = cnt > 0 ? Math.max(2, Math.round((cnt / maxH) * 100)) : 0;
+                const label = h % 3 === 0 ? String(h).padStart(2, '0') : '';
+                return '<div class="chart-col">'
+                    + '<span class="chart-value">' + (cnt > 0 ? cnt : '') + '</span>'
+                    + '<div class="chart-bar' + (h === peakH && cnt > 0 ? ' peak' : '')
+                    + '" style="height:' + barH + '%" title="'
+                    + String(h).padStart(2, '0') + ':00 \u2014 ' + cnt + ' sightings"></div>'
+                    + '<span class="chart-label">' + label + '</span>'
+                    + '</div>';
+            }).join('')
+            + '</div>';
     }
 
     document.getElementById('content').innerHTML = `
     <div class="card">
         <h2>Capture Summary</h2>
-        <div class="grid">
+        <div class="grid-5">
             <div class="metric"><div class="value">${d.total_sightings}</div><div class="label">Total Captures</div></div>
             <div class="metric"><div class="value">${d.today_sightings}</div><div class="label">Today</div></div>
             <div class="metric"><div class="value">${d.unique_species}</div><div class="label">Species</div></div>
             <div class="metric"><div class="value">${d.active_days}</div><div class="label">Active Days</div></div>
+            <div class="metric"><div class="value">${d.avg_per_day}</div><div class="label">Avg / Day</div></div>
         </div>
-        ${firstSeen}
+        <div class="meta-row">${metaParts.join(' &nbsp;&middot;&nbsp; ')}</div>
     </div>
 
     <div class="card">
         <h2>Species Ranking</h2>
-        ${speciesBars}
+        ${speciesRows}
     </div>
 
     <div class="card">
-        <h2>Daily Captures — Last 14 Days</h2>
+        <h2>Recent Captures</h2>
+        ${captureGrid}
+    </div>
+
+    <div class="card">
+        <h2>Daily Captures \u2014 Last 14 Days</h2>
         ${dailyChart}
     </div>
 
@@ -662,10 +737,20 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
                 "SELECT COUNT(DISTINCT date) as d FROM sightings"
             ).fetchone()["d"]
 
-            species_counts = conn.execute(
-                "SELECT species, COUNT(*) as count FROM sightings "
-                "GROUP BY species ORDER BY count DESC"
+            # Species ranking with best-confidence photo per species
+            species_rows = conn.execute(
+                """SELECT s.species, COUNT(*) as count,
+                          bp.image_path as best_photo,
+                          bp.confidence as best_confidence
+                   FROM sightings s
+                   LEFT JOIN (
+                       SELECT species, image_path, MAX(confidence) as confidence
+                       FROM sightings WHERE image_path IS NOT NULL
+                       GROUP BY species
+                   ) bp ON s.species = bp.species
+                   GROUP BY s.species ORDER BY count DESC"""
             ).fetchall()
+
             hourly = conn.execute(
                 "SELECT hour, COUNT(*) as count FROM sightings "
                 "GROUP BY hour ORDER BY hour"
@@ -676,22 +761,65 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
                 "GROUP BY date ORDER BY date"
             ).fetchall()
 
+            # Most captures in a single day
+            most_active = conn.execute(
+                "SELECT date, COUNT(*) as count FROM sightings "
+                "GROUP BY date ORDER BY count DESC LIMIT 1"
+            ).fetchone()
+
+            # 16 most recent captures that have a photo
+            recent = conn.execute(
+                "SELECT timestamp, species, confidence, image_path "
+                "FROM sightings WHERE image_path IS NOT NULL "
+                "ORDER BY timestamp DESC LIMIT 16"
+            ).fetchall()
+
             conn.close()
+
+            avg_per_day = round(total / active_days, 1) if active_days > 0 else 0
+            peak_hour = (
+                max(hourly, key=lambda r: r["count"])["hour"] if hourly else None
+            )
+
             self._serve_json({
                 "total_sightings": total,
                 "today_sightings": today_count,
                 "unique_species": unique,
                 "first_sighting": first,
                 "active_days": active_days,
+                "avg_per_day": avg_per_day,
+                "peak_hour": peak_hour,
+                "most_active_day": (
+                    {"date": most_active["date"], "count": most_active["count"]}
+                    if most_active else None
+                ),
                 "species_ranking": [
-                    {"species": r["species"], "count": r["count"]}
-                    for r in species_counts
+                    {
+                        "species": r["species"],
+                        "count": r["count"],
+                        "photo_url": _image_path_to_url(r["best_photo"]),
+                        "best_confidence": (
+                            round(r["best_confidence"], 3)
+                            if r["best_confidence"] is not None else None
+                        ),
+                    }
+                    for r in species_rows
                 ],
                 "hourly_distribution": {
                     str(r["hour"]): r["count"] for r in hourly
                 },
                 "daily_counts": [
                     {"date": r["date"], "count": r["count"]} for r in daily
+                ],
+                "recent_captures": [
+                    {
+                        "timestamp": r["timestamp"],
+                        "species": r["species"],
+                        "confidence": round(r["confidence"], 3),
+                        "photo_url": _image_path_to_url(r["image_path"]),
+                    }
+                    for r in recent
+                    if _image_path_to_url(r["image_path"])
                 ],
                 "generated_at": datetime.now().isoformat(),
             })
