@@ -158,9 +158,13 @@ The built-in web server lets you browse bird photos and monitor the system from 
 | URL | Description |
 |-----|-------------|
 | `http://<pi-ip>:8080/` | Photo gallery — browse by species, see thumbnails |
+| `http://<pi-ip>:8080/stats` | Capture statistics — species rankings, daily/hourly charts |
+| `http://<pi-ip>:8080/calibration` | **Confidence calibration & sightings inspector** |
 | `http://<pi-ip>:8080/health` | Live health dashboard — disk, processes, recent sightings |
 | `http://<pi-ip>:8080/api/stats` | All-time statistics as JSON |
+| `http://<pi-ip>:8080/api/calibration` | Calibration metrics and debug data as JSON |
 | `http://<pi-ip>:8080/api/health` | System health data as JSON |
+| `http://<pi-ip>:8080/api/feedback` | POST — record a correct/incorrect verdict for a sighting |
 
 The health dashboard auto-refreshes every 30 seconds and shows:
 - Process status (motion detector & classifier running/stopped)
@@ -169,6 +173,17 @@ The health dashboard auto-refreshes every 30 seconds and shows:
 - Species breakdown
 - Database stats and recent sightings
 - Log file size
+
+### Confidence Calibration Page (`/calibration`)
+
+The calibration page helps you track whether the model's confidence scores are meaningful and debug misclassifications:
+
+- **Calibration summary** — total sightings, average confidence, number of manually verified sightings, verified accuracy, and ECE (Expected Calibration Error, lower = better-calibrated).
+- **Confidence distribution histogram** — how sightings are spread across 10% confidence buckets (0–100%).
+- **Reliability diagram (calibration curve)** — for each confidence bucket, the fraction of verified sightings that were actually correct. Points on the diagonal = perfect calibration. Green circles = model is underconfident; red = overconfident. Circle size scales with the number of verified samples in that bucket.
+- **Daily average confidence trend** — 30-day bar chart showing whether model confidence is drifting.
+- **Species confidence table** — per-species average, min, and max confidence, plus verified accuracy.
+- **Sightings inspector** — the 50 most recent classifications with photo thumbnails, confidence scores, expandable top-K prediction lists, and ✓/✗ feedback buttons to mark each as correct or incorrect. Feedback is stored in the SQLite database and feeds into the calibration curve.
 
 You can also generate a static health report to copy off the Pi:
 
@@ -252,7 +267,7 @@ Ordered roughly by effort and impact.
 
 - [ ] **Fine-tune on local species**: Use transfer learning (MobileNetV1 -> your top 20 local species) with TensorFlow on a desktop PC, export INT8 TFLite.
 - [ ] **Add audio classification with BirdNET**: Cornell's BirdNET TFLite model identifies birds by song. Fuse audio + visual confidence for much higher accuracy. Requires a USB microphone (~$5).
-- [ ] **Confidence calibration**: Track and plot model confidence vs. accuracy over time.
+- [x] **Confidence calibration**: Track and plot model confidence vs. accuracy over time — live calibration curve, ECE metric, and sightings inspector at `/calibration`.
 
 ### Phase 3 — IoT & Embedded Skills
 
