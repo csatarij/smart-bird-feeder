@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 
 from privacy import extract_roi, save_private_image
-from utils import load_config, setup_logging, ensure_directories, PROJECT_ROOT
+from utils import PROJECT_ROOT, ensure_directories, load_config, setup_logging
 
 # Minimum free disk space in MB before we stop saving snapshots
 MIN_FREE_DISK_MB = 200
@@ -66,6 +66,7 @@ class MotionDetector:
         if cam_type == "picamera":
             try:
                 from picamera2 import Picamera2
+
                 cam = Picamera2()
                 cam_config = cam.create_still_configuration(
                     main={"size": (w, h), "format": "RGB888"}
@@ -80,6 +81,7 @@ class MotionDetector:
                 try:
                     import picamera
                     import picamera.array
+
                     cam = picamera.PiCamera()
                     cam.resolution = (w, h)
                     cam.framerate = self.cam_cfg.get("framerate", 10)
@@ -110,6 +112,7 @@ class MotionDetector:
                 return camera.capture_array()
             elif cam_type == "picamera_legacy":
                 import picamera.array
+
                 with picamera.array.PiRGBArray(camera) as output:
                     camera.capture(output, "rgb")
                     return output.array
@@ -155,7 +158,9 @@ class MotionDetector:
         sensitivity = self.motion_cfg.get("sensitivity_percent", 3.0)
 
         if changed_pct > sensitivity:
-            self.logger.debug(f"Motion detected: {changed_pct:.1f}% changed (threshold: {sensitivity}%)")
+            self.logger.debug(
+                f"Motion detected: {changed_pct:.1f}% changed (threshold: {sensitivity}%)"
+            )
             return True
         return False
 
@@ -220,8 +225,7 @@ class MotionDetector:
                         self.last_capture_time = time.time()
                         captures_today += 1
                         self.logger.info(
-                            f"Capture #{captures_today} today — "
-                            f"saved to queue for classification"
+                            f"Capture #{captures_today} today — saved to queue for classification"
                         )
 
                 # Sleep to maintain target framerate and save CPU
@@ -240,10 +244,7 @@ class MotionDetector:
 
 def main():
     parser = argparse.ArgumentParser(description="Bird feeder motion detector")
-    parser.add_argument(
-        "--config", type=str, default=None,
-        help="Path to settings.yaml"
-    )
+    parser.add_argument("--config", type=str, default=None, help="Path to settings.yaml")
     args = parser.parse_args()
     config = load_config(args.config)
     detector = MotionDetector(config)

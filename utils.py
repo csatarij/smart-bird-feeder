@@ -3,8 +3,9 @@
 import logging
 import logging.handlers
 import sys
-import yaml
 from pathlib import Path
+
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -81,9 +82,11 @@ def get_disk_usage_mb(directory: str | Path) -> float:
 def prune_old_files(directory: str | Path, max_mb: float) -> int:
     """Delete oldest files until directory is under max_mb. Returns count deleted."""
     directory = Path(directory)
-    usage_bytes = sum(
-        f.stat().st_size for f in directory.rglob("*") if f.is_file()
-    ) if directory.exists() else 0
+    usage_bytes = (
+        sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
+        if directory.exists()
+        else 0
+    )
     max_bytes = max_mb * 1024 * 1024
 
     if usage_bytes <= max_bytes:

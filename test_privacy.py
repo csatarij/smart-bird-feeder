@@ -36,7 +36,6 @@ def privacy_config():
 
 
 class TestROIExtraction:
-
     def test_roi_is_smaller_than_frame(self, sample_frame, roi_config):
         roi = extract_roi(sample_frame, roi_config)
         assert roi.shape[0] < sample_frame.shape[0]
@@ -56,7 +55,6 @@ class TestROIExtraction:
 
 
 class TestEXIFStripping:
-
     def test_exif_is_removed(self):
         """Saved images should have no EXIF metadata."""
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
@@ -75,7 +73,6 @@ class TestEXIFStripping:
 
 
 class TestPrivateImageSaving:
-
     def test_saved_image_exists(self, sample_frame, roi_config, privacy_config):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "test.jpg"

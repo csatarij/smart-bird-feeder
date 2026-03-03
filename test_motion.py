@@ -57,6 +57,7 @@ class TestMotionDetection:
     def test_cooldown_prevents_rapid_captures(self, detector):
         """Cooldown timer should prevent burst captures."""
         import time
+
         detector.last_capture_time = time.time()
         assert detector._is_cooldown_active() is True
 
