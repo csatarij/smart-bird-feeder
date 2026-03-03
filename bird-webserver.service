@@ -1,6 +1,6 @@
 [Unit]
 Description=Smart Bird Feeder — Photo Browser & Health Dashboard
-After=network.target
+After=network.target bird-capture.service bird-classify.service
 
 [Service]
 Type=simple
