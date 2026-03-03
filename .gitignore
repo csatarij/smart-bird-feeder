@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data directories (bird photos, DB, logs)
+data/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
