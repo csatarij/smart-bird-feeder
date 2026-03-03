@@ -24,6 +24,9 @@ import mimetypes
 import shutil
 import socketserver
 import sqlite3
+import subprocess
+import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -38,6 +41,7 @@ DATA_DIR = None
 CLASSIFIED_DIR = None
 STATS_DIR = None
 DB_PATH = None
+POWER_CFG = None  # power_monitoring section of config
 
 
 def _ensure_feedback_column(conn):
@@ -69,6 +73,117 @@ def _image_path_to_url(image_path: str | None) -> str | None:
     if len(parts) >= 2:
         return f"/photos/{parts[-2]}/{parts[-1]}"
     return None
+
+
+def get_power_metrics() -> dict:
+    """Read CPU temperature and core voltage via vcgencmd (or /sys fallback).
+
+    Returns a dict with keys cpu_temp_c, core_volts_v, throttled.
+    Any value may be None if the source is unavailable (non-Pi hardware,
+    vcgencmd not on PATH, or permission error).
+    """
+    metrics: dict = {"cpu_temp_c": None, "core_volts_v": None, "throttled": None}
+
+    # CPU temperature — vcgencmd first, /sys fallback
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "measure_temp"], timeout=3, stderr=subprocess.DEVNULL, text=True
+        )
+        # "temp=45.0'C"
+        metrics["cpu_temp_c"] = round(float(out.strip().replace("temp=", "").replace("'C", "")), 1)
+    except Exception:
+        pass
+
+    if metrics["cpu_temp_c"] is None:
+        try:
+            raw = Path("/sys/class/thermal/thermal_zone0/temp").read_text().strip()
+            metrics["cpu_temp_c"] = round(int(raw) / 1000.0, 1)
+        except Exception:
+            pass
+
+    # Core voltage
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "measure_volts", "core"],
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        # "volt=1.3500V"
+        metrics["core_volts_v"] = round(float(out.strip().replace("volt=", "").replace("V", "")), 4)
+    except Exception:
+        pass
+
+    # Throttle / under-voltage flags
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "get_throttled"],
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        # "throttled=0x0"
+        metrics["throttled"] = out.strip().replace("throttled=", "")
+    except Exception:
+        pass
+
+    return metrics
+
+
+def _read_power_history(max_rows: int = 288) -> list[dict]:
+    """Read the most recent rows from the power log CSV.
+
+    max_rows=288 covers 24 h at 5-minute intervals.
+    """
+    if POWER_CFG is None:
+        return []
+    log_file = PROJECT_ROOT / POWER_CFG.get("log_file", "data/power_log.csv")
+    if not log_file.exists():
+        return []
+    try:
+        lines = log_file.read_text().splitlines()
+        data_lines = [ln for ln in lines[1:] if ln.strip()]  # skip header
+        rows = []
+        for line in data_lines[-max_rows:]:
+            parts = line.split(",")
+            if len(parts) >= 3:
+                rows.append(
+                    {
+                        "ts": parts[0],
+                        "cpu_temp_c": float(parts[1]) if parts[1] else None,
+                        "core_volts_v": float(parts[2]) if parts[2] else None,
+                        "throttled": parts[3].strip() if len(parts) > 3 else None,
+                    }
+                )
+        return rows
+    except Exception:
+        return []
+
+
+def _power_log_worker():
+    """Background daemon thread: append a CSV row every interval_seconds."""
+    if POWER_CFG is None or not POWER_CFG.get("enabled", False):
+        return
+
+    interval = POWER_CFG.get("interval_seconds", 300)
+    log_file = PROJECT_ROOT / POWER_CFG.get("log_file", "data/power_log.csv")
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if not log_file.exists() or log_file.stat().st_size == 0:
+        log_file.write_text("timestamp,cpu_temp_c,core_volts_v,throttled\n")
+
+    while True:
+        try:
+            m = get_power_metrics()
+            ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            temp = "" if m["cpu_temp_c"] is None else str(m["cpu_temp_c"])
+            volts = "" if m["core_volts_v"] is None else str(m["core_volts_v"])
+            throttled = "" if m["throttled"] is None else m["throttled"]
+            with open(log_file, "a") as f:
+                f.write(f"{ts},{temp},{volts},{throttled}\n")
+        except Exception:
+            pass  # Never crash the background thread
+        time.sleep(interval)
 
 
 def get_health_data() -> dict:
@@ -142,6 +257,12 @@ def get_health_data() -> dict:
     capture_running = _check_process("motion_detector")
     classify_running = _check_process("classifier")
 
+    # Power & thermal metrics
+    power_current = get_power_metrics()
+    history_hours = (POWER_CFG or {}).get("history_hours", 24)
+    max_rows = int(history_hours * 3600 / max((POWER_CFG or {}).get("interval_seconds", 300), 1))
+    power_history = _read_power_history(max_rows)
+
     return {
         "timestamp": datetime.now().isoformat(),
         "disk": {
@@ -162,6 +283,10 @@ def get_health_data() -> dict:
         "processes": {
             "motion_detector": capture_running,
             "classifier": classify_running,
+        },
+        "power": {
+            "current": power_current,
+            "history": power_history,
         },
     }
 
@@ -1050,7 +1175,55 @@ function render(d) {
         <h2>Logs</h2>
         <div class="metric"><div class="value">${d.log_size_mb} MB</div><div class="label">Log File Size</div></div>
     </div>
+
+    ${renderPowerCard(d.power)}
     `;
+}
+
+function tempColor(c) {
+    if (c === null || c === undefined) return '#666';
+    if (c > 80) return '#f44336';
+    if (c > 70) return '#ff9800';
+    return '#4caf50';
+}
+
+function renderPowerCard(p) {
+    if (!p) return '';
+    const cur = p.current || {};
+    const hist = p.history || [];
+
+    const tempVal = cur.cpu_temp_c !== null && cur.cpu_temp_c !== undefined
+        ? cur.cpu_temp_c.toFixed(1) + '\u00b0C' : '--';
+    const voltsVal = cur.core_volts_v !== null && cur.core_volts_v !== undefined
+        ? cur.core_volts_v.toFixed(4) + ' V' : '--';
+
+    const isThrottled = cur.throttled && cur.throttled !== '0x0';
+    const throttleText = cur.throttled !== null && cur.throttled !== undefined
+        ? (isThrottled ? 'THROTTLED' : 'OK') : '--';
+    const throttleDetail = isThrottled ? ' (' + cur.throttled + ')' : '';
+    const throttleColor = isThrottled ? '#f44336' : '#4caf50';
+
+    let histHtml = '';
+    if (hist.length > 0) {
+        const rows = [...hist].reverse().slice(0, 12).map(r => {
+            const tc = r.cpu_temp_c !== null && r.cpu_temp_c !== undefined
+                ? '<span style="color:' + tempColor(r.cpu_temp_c) + '">' + r.cpu_temp_c.toFixed(1) + '\u00b0C</span>'
+                : '--';
+            const vc = r.core_volts_v !== null && r.core_volts_v !== undefined
+                ? r.core_volts_v.toFixed(4) + ' V' : '--';
+            return '<tr><td>' + r.ts + '</td><td>' + tc + '</td><td>' + vc + '</td></tr>';
+        }).join('');
+        histHtml = '<details style="margin-top:1rem"><summary style="cursor:pointer;color:#666;font-size:0.9rem">Recent history (' + hist.length + ' readings)</summary>'
+            + '<table style="margin-top:0.5rem"><tr><th>Time</th><th>Temp</th><th>Voltage</th></tr>'
+            + rows + '</table></details>';
+    }
+
+    return '<div class="card"><h2>Power &amp; Thermal</h2>'
+        + '<div class="grid">'
+        + '<div class="metric"><div class="value" style="color:' + tempColor(cur.cpu_temp_c) + '">' + tempVal + '</div><div class="label">CPU Temperature</div></div>'
+        + '<div class="metric"><div class="value">' + voltsVal + '</div><div class="label">Core Voltage</div></div>'
+        + '<div class="metric"><div class="value" style="color:' + throttleColor + '">' + throttleText + '<span style="font-size:0.65em">' + throttleDetail + '</span></div><div class="label">Throttle Status</div></div>'
+        + '</div>' + histHtml + '</div>';
 }
 
 function refresh() {
@@ -1462,7 +1635,7 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    global CONFIG, LOGGER, DATA_DIR, CLASSIFIED_DIR, STATS_DIR, DB_PATH
+    global CONFIG, LOGGER, DATA_DIR, CLASSIFIED_DIR, STATS_DIR, DB_PATH, POWER_CFG
 
     parser = argparse.ArgumentParser(description="Bird feeder photo browser")
     parser.add_argument("--config", type=str, default=None)
@@ -1479,6 +1652,15 @@ def main():
     CLASSIFIED_DIR = PROJECT_ROOT / storage.get("classified_dir", "data/classified")
     STATS_DIR = PROJECT_ROOT / storage.get("stats_dir", "data/stats")
     DB_PATH = PROJECT_ROOT / storage.get("database_path", "data/birds.db")
+
+    POWER_CFG = CONFIG.get("power_monitoring", {})
+    if POWER_CFG.get("enabled", False):
+        t = threading.Thread(target=_power_log_worker, daemon=True, name="power-monitor")
+        t.start()
+        LOGGER.info(
+            f"Power monitoring started (interval: {POWER_CFG.get('interval_seconds', 300)}s, "
+            f"log: {POWER_CFG.get('log_file', 'data/power_log.csv')})"
+        )
 
     host = args.host or web_cfg.get("host", "0.0.0.0")  # nosec B104 – intentional LAN binding
     port = args.port or web_cfg.get("port", 8080)

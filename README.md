@@ -9,7 +9,7 @@ Browse your bird photos and monitor system health from any device on your local 
 | Component | Details |
 |-----------|---------|
 | Board | Raspberry Pi 1 Model B (ARM11 @ 700MHz, 512MB RAM, ARMv6) |
-| Camera | Raspberry Pi Camera Module v1.3 (or USB webcam) |
+| Camera | Raspberry Pi Camera Module v2 (IMX219, 8MP, 3280×2464 native — or USB webcam) |
 | Storage | 64GB microSD (Class 10 / A1 recommended) |
 | Power | 5V / 1A micro-USB PSU |
 | Enclosure | Weatherproof case (3D-printed or commercial) |
@@ -173,6 +173,7 @@ The health dashboard auto-refreshes every 30 seconds and shows:
 - Species breakdown
 - Database stats and recent sightings
 - Log file size
+- **Power & Thermal**: CPU temperature, core voltage, throttle status (via `vcgencmd`), and a 24-hour history log
 
 ### Confidence Calibration Page (`/calibration`)
 
@@ -225,7 +226,8 @@ smart-bird-feeder/
 │   ├── classified/           # Species-labeled bird photos
 │   │   └── <species_name>/   # One directory per species
 │   ├── stats/                # JSON statistics exports
-│   └── birds.db              # SQLite database
+│   ├── birds.db              # SQLite database
+│   └── power_log.csv         # CPU temperature & voltage time-series (vcgencmd)
 ├── HARDWARE_SETUP.md
 ├── PERFORMANCE.md
 ├── PRIVACY.md
@@ -259,6 +261,16 @@ GitHub sync is available but **disabled by default**. To enable it, set `github.
 
 ---
 
+## Recent Changes
+
+| Change | Details |
+|--------|---------|
+| **Camera resolution** | Updated to Pi Camera v2 native max: **3280×2464** (up from 640×480). `privacy.max_saved_dimension` raised to 2048 for higher-quality saves. |
+| **Log retention** | Switched from size-based rotation to **daily rotation with 30-day retention** (`TimedRotatingFileHandler`). Controlled by `logging.rotation: "daily"` and `logging.backup_count: 30`. |
+| **Power monitoring** | The web server starts a background thread that writes CPU temperature, core voltage, and throttle status to **`data/power_log.csv`** every 5 minutes (configurable). The health dashboard now shows a **Power & Thermal card** with current values and a collapsible 24-hour history. |
+
+---
+
 ## Enhancement Roadmap
 
 Ordered roughly by effort and impact.
@@ -273,7 +285,7 @@ Ordered roughly by effort and impact.
 
 - [ ] **MQTT telemetry**: Publish sightings to a local MQTT broker (Mosquitto).
 - [ ] **Environmental sensors**: Add a BME280 (temperature, humidity, pressure) via I2C. Correlate weather with bird activity — "Blue Tits visit 40% more on rainy mornings."
-- [ ] **Power monitoring**: Log CPU temperature and power draw over time with `vcgencmd`.
+- [x] **Power monitoring**: Log CPU temperature and core voltage over time with `vcgencmd`. The web server background-threads a CSV logger (`data/power_log.csv`) and displays a live Power & Thermal card on the health dashboard with throttle-status detection.
 - [ ] **OTA updates**: Implement a simple self-update mechanism (Git pull + systemd restart).
 
 ### Phase 4 — Data & Visualization

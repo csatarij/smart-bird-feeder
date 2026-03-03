@@ -49,11 +49,23 @@ def setup_logging(config: dict) -> logging.Logger:
     # File handler (rotating)
     log_file = PROJECT_ROOT / log_cfg.get("file", "data/bird_feeder.log")
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    fh = logging.handlers.RotatingFileHandler(
-        log_file,
-        maxBytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
-        backupCount=log_cfg.get("backup_count", 3),
-    )
+
+    rotation = log_cfg.get("rotation", "size")
+    backup_count = log_cfg.get("backup_count", 30)
+
+    if rotation == "daily":
+        fh = logging.handlers.TimedRotatingFileHandler(
+            log_file,
+            when="midnight",
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+    else:
+        fh = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
+            backupCount=backup_count,
+        )
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
