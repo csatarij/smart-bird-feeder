@@ -21,6 +21,7 @@ import shutil
 import sqlite3
 import time
 from datetime import datetime
+import socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote
@@ -890,7 +891,10 @@ def main():
     host = args.host or web_cfg.get("host", "0.0.0.0")
     port = args.port or web_cfg.get("port", 8080)
 
-    server = HTTPServer((host, port), BirdFeederHandler)
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+        daemon_threads = True  # threads exit when the main process does
+
+    server = ThreadedHTTPServer((host, port), BirdFeederHandler)
     LOGGER.info(f"Web server starting on http://{host}:{port}")
     print(f"Bird Feeder photo browser running at http://{host}:{port}")
     print(f"  Gallery:   http://{host}:{port}/")
