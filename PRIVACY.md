@@ -42,12 +42,31 @@ Full camera frame (640×480)         What is actually saved
 - Network traffic logs
 - IP addresses or device identifiers
 
+### Storage model
+
+All photos and data are stored **locally on the SD card** by default. GitHub sync is disabled out of the box. You control when and how data leaves the device — either by manually copying files via `scp`, or by optionally enabling the GitHub sync feature.
+
+### Local web server
+
+The built-in web server (`webserver.py`) listens on port 8080 and is intended for **LAN access only**. It serves:
+- A photo gallery of classified bird images
+- A system health dashboard
+- JSON API endpoints for stats and health data
+
+The web server does not:
+- Require authentication (it trusts the local network)
+- Expose any data to the internet (bind to 0.0.0.0 on LAN only)
+- Accept uploads or modifications — it is strictly read-only
+
+If your Pi is directly exposed to the internet (not behind a router/firewall), you should either disable the web server or change the bind address to `127.0.0.1` in `settings.yaml`.
+
 ### Network security
 
-- The system has **no open ports** and accepts no inbound connections
-- The only outbound connection is an SSH-authenticated Git push (optional)
+- The web server is **LAN-only** — no internet-facing ports
+- GitHub sync is **disabled by default** — all data stays on the SD card
+- If GitHub sync is enabled, the only outbound connection is an SSH-authenticated Git push
 - The system works fully offline — WiFi is optional
-- No DNS queries except for Git push (if enabled)
+- No DNS queries unless GitHub sync is enabled
 
 ## For contributors
 

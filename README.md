@@ -1,6 +1,8 @@
-# 🐦 Smart Bird Feeder — Raspberry Pi 1B
+# Smart Bird Feeder — Raspberry Pi 1B
 
 An offline, privacy-first smart bird feeder that detects birds, photographs them, classifies species using on-device ML, and generates statistics — all running on a Raspberry Pi 1 Model B.
+
+Browse your bird photos and monitor system health from any device on your local network via the built-in web server.
 
 ## Hardware
 
@@ -8,7 +10,7 @@ An offline, privacy-first smart bird feeder that detects birds, photographs them
 |-----------|---------|
 | Board | Raspberry Pi 1 Model B (ARM11 @ 700MHz, 512MB RAM, ARMv6) |
 | Camera | Raspberry Pi Camera Module v1.3 (or USB webcam) |
-| Storage | 16-32GB microSD (Class 10 / A1 recommended) |
+| Storage | 64GB microSD (Class 10 / A1 recommended) |
 | Power | 5V / 1A micro-USB PSU |
 | Enclosure | Weatherproof case (3D-printed or commercial) |
 | Feeder | Standard bird feeder positioned 30-50cm from camera |
@@ -16,30 +18,42 @@ An offline, privacy-first smart bird feeder that detects birds, photographs them
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  Raspberry Pi 1B                     │
-│                                                      │
-│  ┌──────────┐    ┌──────────┐    ┌───────────────┐  │
-│  │  Camera   │───▶│ Motion   │───▶│ Snapshot      │  │
-│  │  Stream   │    │ Detector │    │ Capture       │  │
-│  └──────────┘    └──────────┘    └──────┬────────┘  │
-│                                         │            │
-│                                         ▼            │
-│  ┌──────────────────────────────────────────────┐   │
-│  │  Classification Queue (filesystem-based)      │   │
-│  └──────────────┬───────────────────────────────┘   │
-│                  │                                    │
-│                  ▼                                    │
-│  ┌──────────────────────┐   ┌────────────────────┐  │
-│  │ OpenCV DNN / TFLite  │──▶│ Statistics Engine   │  │
-│  │ (MobileNetV1 quant.) │   │ (SQLite + JSON)    │  │
-│  └──────────────────────┘   └────────┬───────────┘  │
-│                                       │              │
-│                                       ▼              │
-│                              ┌────────────────────┐  │
-│                              │ GitHub Sync (cron) │  │
-│                              └────────────────────┘  │
-└─────────────────────────────────────────────────────┘
+                          Raspberry Pi 1B
+  ┌──────────────────────────────────────────────────────────────┐
+  │                                                              │
+  │  ┌──────────┐    ┌──────────┐    ┌───────────────┐          │
+  │  │  Camera   │───>│ Motion   │───>│ Snapshot      │          │
+  │  │  Stream   │    │ Detector │    │ Capture       │          │
+  │  └──────────┘    └──────────┘    └──────┬────────┘          │
+  │                                         │                    │
+  │                         disk space check │                   │
+  │                                         v                    │
+  │  ┌──────────────────────────────────────────────┐           │
+  │  │  Classification Queue (filesystem-based)      │           │
+  │  └──────────────┬───────────────────────────────┘           │
+  │                  │                                            │
+  │                  v                                            │
+  │  ┌──────────────────────┐   ┌────────────────────┐          │
+  │  │ OpenCV DNN / TFLite  │──>│ Statistics Engine   │          │
+  │  │ (MobileNetV1 quant.) │   │ (SQLite + JSON)    │          │
+  │  └──────────────────────┘   └────────┬───────────┘          │
+  │                                       │                      │
+  │                          storage pruning & keep_best_only    │
+  │                                       │                      │
+  │                                       v                      │
+  │                              ┌────────────────────┐          │
+  │                              │ Web Server (:8080)  │          │
+  │                              │  Gallery + Health   │          │
+  │                              └────────────────────┘          │
+  └──────────────────────────────────────────────────────────────┘
+             │
+             │  LAN (any browser)
+             v
+    ┌──────────────────┐
+    │  Phone / Laptop  │
+    │  Photo gallery   │
+    │  Health dashboard│
+    └──────────────────┘
 ```
 
 ### Key Design Decisions for Pi 1B
@@ -47,9 +61,10 @@ An offline, privacy-first smart bird feeder that detects birds, photographs them
 1. **Motion detection via frame differencing** — no ML needed, just NumPy/OpenCV pixel math
 2. **Decoupled capture and classification** — motion detector saves photos to a queue directory; a separate classifier process picks them up on its own schedule (avoids blocking)
 3. **OpenCV DNN as primary ML backend** — `tflite-runtime` has no armv6l wheels and Trixie ships Python 3.13 with no community builds. OpenCV 4.8+ can load `.tflite` models natively via `cv2.dnn.readNet()`, and it's already installed via apt. Zero extra dependencies. Falls back to tflite-runtime if available.
-4. **Filesystem-based queue** — no message broker needed; just directories (`captures/` → `classified/`)
+4. **Filesystem-based queue** — no message broker needed; just directories (`captures/` -> `classified/`)
 5. **SQLite for stats** — zero-config, low memory, perfect for this scale
-6. **Cron-driven GitHub sync** — pushes daily summary + selected photos via Git
+6. **Local-first storage** — all photos stay on the 64GB SD card; grab them off the Pi whenever you like
+7. **Built-in web server** — browse photos and check system health from any device on the LAN (no cloud, no external dependencies)
 
 ---
 
@@ -58,67 +73,108 @@ An offline, privacy-first smart bird feeder that detects birds, photographs them
 | Threat | Mitigation |
 |--------|------------|
 | Camera captures people | Region-of-Interest (ROI) crop to feeder area only; frames outside ROI are never saved |
-| Network exposure | No cloud APIs, no open ports; outbound-only Git push over SSH |
-| Photo metadata | EXIF stripped before storage and upload |
+| Photo metadata | EXIF stripped before storage |
 | Stored images | Only cropped bird images are retained; full frames are discarded immediately |
-| GitHub uploads | Only bird crops + stats are pushed; never raw frames |
-| WiFi | Optional — works fully offline; sync only when connected |
+| Network exposure | No cloud APIs; web server is LAN-only; no inbound connections from the internet |
+| WiFi | Optional — works fully offline |
+
+See [PRIVACY.md](PRIVACY.md) for the full privacy design document.
 
 ---
 
 ## Setup
 
-### 1. OS & Dependencies
+### Quick Start (automated)
+
+```bash
+git clone <repo-url> ~/smart-bird-feeder
+cd ~/smart-bird-feeder
+chmod +x setup.sh
+./setup.sh
+```
+
+The setup script installs system packages, creates a virtualenv, downloads the ML model, and optionally installs systemd services (motion detector, classifier, and web server) for auto-start on boot.
+
+### Manual Setup
+
+#### 1. OS & Dependencies
 
 ```bash
 # Flash Raspberry Pi OS Lite (Legacy, Bullseye — last ARMv6 support)
-# Enable camera: sudo raspi-config → Interface → Camera
+# Enable camera: sudo raspi-config -> Interface -> Camera
 
 # Install system packages
 sudo apt-get update
 
 # NOTE: libatlas-base-dev was removed in Debian Trixie (2025+).
-# Use libopenblas-dev instead if you're on Trixie/Bookworm+:
-#   Bullseye/older: sudo apt-get install -y libatlas-base-dev
-#   Trixie/newer:   sudo apt-get install -y libopenblas-dev
+# Use libopenblas-dev instead if you're on Trixie/Bookworm+.
 sudo apt-get install -y python3-pip python3-venv python3-opencv \
     python3-picamera2 python3-numpy python3-pil sqlite3 git libopenblas-dev
 
 # Create project venv (--system-site-packages to reuse apt-installed opencv/numpy)
-python3 -m venv --system-site-packages ~/smart-bird-feeder-env
-source ~/smart-bird-feeder-env/bin/activate
+python3 -m venv --system-site-packages ~/smart-bird-feeder/venv
+source ~/smart-bird-feeder/venv/bin/activate
 
-# Install Python packages (tflite-runtime is NOT needed — OpenCV DNN handles inference)
-pip install Pillow piexif PyYAML schedule
+# Install Python packages
+pip install -r requirements.txt
 ```
 
-### 2. Download the Model
+#### 2. Download the Model
 
 ```bash
-# MobileNetV1 quantized for image classification
-mkdir -p ~/smart-bird-feeder/models
-cd ~/smart-bird-feeder/models
-
-# Download the iNaturalist bird model (or use the provided script)
-python3 ../download_model.py
+python3 download_model.py
 ```
 
-### 3. Configure
+#### 3. Configure
 
-Edit `config/settings.yaml` to match your setup (camera, ROI, species list, etc).
+Edit `settings.yaml` to match your setup (camera type, ROI coordinates, sensitivity, etc.).
 
-### 4. Run
+#### 4. Run
 
 ```bash
-# Start the motion detector + capture service
-python3 src/motion_detector.py &
+# Start the motion detector
+python3 motion_detector.py &
 
 # Start the classifier (separate process, runs when CPU is free)
-python3 src/classifier.py &
+python3 classifier.py &
 
-# Or use the systemd services (recommended)
-sudo cp *.service /etc/systemd/system/
-sudo systemctl enable --now bird-capture bird-classify
+# Start the photo browser & health dashboard
+python3 webserver.py &
+
+# Or install all three as systemd services (recommended)
+sudo cp bird-capture.service bird-classify.service bird-webserver.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bird-capture bird-classify bird-webserver
+```
+
+The web server will be available at `http://<pi-ip>:8080`.
+
+---
+
+## Web Server
+
+The built-in web server lets you browse bird photos and monitor the system from any device on your local network — phone, tablet, or laptop. It uses only the Python standard library (no Flask needed) and runs with a ~30MB memory footprint.
+
+| URL | Description |
+|-----|-------------|
+| `http://<pi-ip>:8080/` | Photo gallery — browse by species, see thumbnails |
+| `http://<pi-ip>:8080/health` | Live health dashboard — disk, processes, recent sightings |
+| `http://<pi-ip>:8080/api/stats` | All-time statistics as JSON |
+| `http://<pi-ip>:8080/api/health` | System health data as JSON |
+
+The health dashboard auto-refreshes every 30 seconds and shows:
+- Process status (motion detector & classifier running/stopped)
+- Disk usage with visual progress bar
+- Photo counts (classified, queued, unclassified)
+- Species breakdown
+- Database stats and recent sightings
+- Log file size
+
+You can also generate a static health report to copy off the Pi:
+
+```bash
+python3 generate_health_html.py
+# Creates data/health.html — open in any browser
 ```
 
 ---
@@ -127,39 +183,64 @@ sudo systemctl enable --now bird-capture bird-classify
 
 ```
 smart-bird-feeder/
-├── README.md
-├── config/
-│   └── settings.yaml          # All configuration
-├── src/
-│   ├── motion_detector.py     # Camera + motion detection + snapshot
-│   ├── classifier.py          # TFLite bird species classification
-│   ├── stats_engine.py        # SQLite stats + JSON export
-│   ├── privacy.py             # ROI crop, EXIF strip, blur
-│   ├── github_sync.py         # Push results to GitHub
-│   └── utils.py               # Shared utilities
-├── download_model.py          # Fetch TFLite model + labels
-├── setup.sh                   # One-shot setup script
-├── bird-capture.service       # systemd unit
-├── bird-classify.service      # systemd unit
-├── daily_sync.sh              # Cron script for GitHub push
-├── models/                    # TFLite model + labels (gitignored)
-├── data/
-│   ├── captures/              # Raw motion-triggered snapshots (queue)
-│   ├── classified/            # Species-labeled bird photos
-│   ├── stats/                 # JSON + SQLite statistics
-│   └── birds.db               # SQLite database
-├── docs/
-│   ├── HARDWARE_SETUP.md
-│   ├── PERFORMANCE.md
-│   └── PRIVACY.md
-├── tests/
-│   ├── test_motion.py
-│   ├── test_classifier.py
-│   └── test_privacy.py
-├── .gitignore
-├── requirements.txt
+├── motion_detector.py        # Camera + motion detection + snapshot
+├── classifier.py             # Bird species classification (OpenCV DNN / TFLite)
+├── stats_engine.py           # SQLite stats + JSON export
+├── privacy.py                # ROI crop, EXIF strip, blur
+├── github_sync.py            # Push results to GitHub (optional, disabled by default)
+├── utils.py                  # Shared utilities (config, logging, paths, pruning)
+├── webserver.py              # Local network photo browser & health dashboard
+├── generate_health_html.py   # Generate static health.html report
+├── download_model.py         # Fetch TFLite model + labels
+├── settings.yaml             # All configuration
+├── setup.sh                  # One-shot setup script
+├── requirements.txt          # Python dependencies
+├── bird-capture.service      # systemd unit — motion detector
+├── bird-classify.service     # systemd unit — classifier
+├── bird-webserver.service    # systemd unit — web server
+├── daily_sync.sh             # Cron script for GitHub push (if enabled)
+├── test_classifier.py        # Classifier tests
+├── test_motion.py            # Motion detection tests
+├── test_privacy.py           # Privacy module tests
+├── models/                   # TFLite model + labels (gitignored)
+│   ├── bird_model.tflite
+│   └── bird_labels.txt
+├── data/                     # Runtime data (gitignored)
+│   ├── captures/             # Motion-triggered snapshots (classification queue)
+│   ├── classified/           # Species-labeled bird photos
+│   │   └── <species_name>/   # One directory per species
+│   ├── stats/                # JSON statistics exports
+│   └── birds.db              # SQLite database
+├── HARDWARE_SETUP.md
+├── PERFORMANCE.md
+├── PRIVACY.md
 └── LICENSE
 ```
+
+---
+
+## Storage & Data Management
+
+Photos are stored locally on the SD card. Storage is managed automatically:
+
+- **Auto-pruning**: When disk usage exceeds `storage.max_storage_mb` (default: 50 GB), the oldest photos are deleted first.
+- **Keep-best mode**: Set `storage.keep_best_only: true` to keep only the highest-confidence photo per species per day.
+- **Disk check before capture**: The motion detector checks available space before saving new snapshots.
+
+To grab your data off the Pi:
+
+```bash
+# Copy all classified photos
+scp -r pi@<pi-ip>:~/smart-bird-feeder/data/classified/ ./bird-photos/
+
+# Copy statistics
+scp pi@<pi-ip>:~/smart-bird-feeder/data/stats/ ./bird-stats/
+
+# Copy the database
+scp pi@<pi-ip>:~/smart-bird-feeder/data/birds.db ./
+```
+
+GitHub sync is available but **disabled by default**. To enable it, set `github.enabled: true` in `settings.yaml` and configure `github.repo_url`.
 
 ---
 
@@ -169,7 +250,7 @@ Ordered roughly by effort and impact.
 
 ### Phase 2 — Better ML
 
-- [ ] **Fine-tune on local species**: Use transfer learning (MobileNetV1 → your top 20 local species) with TensorFlow on a desktop PC, export INT8 TFLite.
+- [ ] **Fine-tune on local species**: Use transfer learning (MobileNetV1 -> your top 20 local species) with TensorFlow on a desktop PC, export INT8 TFLite.
 - [ ] **Add audio classification with BirdNET**: Cornell's BirdNET TFLite model identifies birds by song. Fuse audio + visual confidence for much higher accuracy. Requires a USB microphone (~$5).
 - [ ] **Confidence calibration**: Track and plot model confidence vs. accuracy over time.
 
@@ -182,10 +263,9 @@ Ordered roughly by effort and impact.
 
 ### Phase 4 — Data & Visualization
 
-- [ ] **GitHub Pages dashboard**: Auto-generate a static site (Chart.js or D3.js) from your JSON stats. Push to GitHub Pages — viewers see live bird data without any server.
-- [ ] **Species activity heatmap**: Time-of-day × species matrix showing when each species is most active.
+- [ ] **Enhanced web dashboard**: Add Chart.js graphs to the built-in web server — species activity heatmaps, daily trends, hourly distribution charts.
 - [ ] **Seasonal trends**: After a few months of data, plot migration patterns and seasonal species shifts.
-- [ ] **Data export**: CSV and JSON APIs for your data, making it easy for others to analyze.
+- [ ] **Data export**: CSV download from the web interface.
 
 ### Phase 5 — Advanced Architecture (Ongoing)
 
@@ -193,12 +273,12 @@ Ordered roughly by effort and impact.
 - [ ] **Multi-feeder mesh**: Support multiple Pi cameras feeding into a single classifier/dashboard. Uses mDNS for zero-config discovery.
 - [ ] **Container deployment**: Package the entire stack in Docker (with Balena for Pi fleet management).
 - [ ] **CI/CD pipeline**: GitHub Actions to lint, test, and build on every push. Auto-generate release artifacts.
-- [ ] **Prometheus + Grafana monitoring**: Export system metrics (CPU, RAM, disk, capture rate) to Prometheus. Build a Grafana dashboard showing system health alongside bird data.
+- [ ] **Prometheus + Grafana monitoring**: Export system metrics (CPU, RAM, disk, capture rate) to Prometheus.
 
 ### Stretch Goals
 
-- [ ] **Bird visitor alerts**: Rare species detection → push notification via Ntfy (self-hosted, privacy-preserving push notifications).
-- [ ] **Feeder level monitoring**: Ultrasonic sensor to detect when the feeder needs refilling. Automate a "refill reminder" commit to the data repo.
+- [ ] **Bird visitor alerts**: Rare species detection -> push notification via Ntfy (self-hosted, privacy-preserving push notifications).
+- [ ] **Feeder level monitoring**: Ultrasonic sensor to detect when the feeder needs refilling.
 - [ ] **Time-lapse generation**: Stitch daily best-of photos into a monthly time-lapse video (ffmpeg on a nightly cron job).
 - [ ] **Citizen science integration**: Export data in eBird-compatible format for contribution to real ornithological research.
 

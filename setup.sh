@@ -61,19 +61,20 @@ echo "[6/6] Setting up systemd services..."
 read -p "Install systemd services for auto-start on boot? [y/N]: " install_services
 if [[ "$install_services" =~ ^[Yy]$ ]]; then
     # Update paths in service files
-    for service in bird-capture bird-classify; do
+    for service in bird-capture bird-classify bird-webserver; do
         sed "s|/home/pi/smart-bird-feeder|$PROJECT_DIR|g" \
             "$PROJECT_DIR/${service}.service" | \
             sudo tee "/etc/systemd/system/${service}.service" > /dev/null
     done
     sudo systemctl daemon-reload
-    sudo systemctl enable bird-capture bird-classify
+    sudo systemctl enable bird-capture bird-classify bird-webserver
     echo "  Services installed. Start with:"
-    echo "    sudo systemctl start bird-capture bird-classify"
+    echo "    sudo systemctl start bird-capture bird-classify bird-webserver"
 else
     echo "  Skipped. You can run manually:"
     echo "    python3 motion_detector.py &"
     echo "    python3 classifier.py &"
+    echo "    python3 webserver.py &"
 fi
 
 echo ""
@@ -87,4 +88,8 @@ echo "   python3 motion_detector.py"
 echo ""
 echo " In another terminal:"
 echo "   python3 classifier.py"
+echo ""
+echo " Photo browser & health dashboard:"
+echo "   python3 webserver.py"
+echo "   # Then open http://<pi-ip>:8080 in your browser"
 echo "================================================"
