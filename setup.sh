@@ -72,8 +72,8 @@ if [[ "$install_services" =~ ^[Yy]$ ]]; then
     echo "    sudo systemctl start bird-capture bird-classify"
 else
     echo "  Skipped. You can run manually:"
-    echo "    python3 src/motion_detector.py &"
-    echo "    python3 src/classifier.py &"
+    echo "    python3 motion_detector.py &"
+    echo "    python3 classifier.py &"
 fi
 
 echo ""
@@ -83,8 +83,8 @@ echo ""
 echo " Quick start:"
 echo "   cd $PROJECT_DIR"
 echo "   source venv/bin/activate"
-echo "   python3 src/motion_detector.py"
+echo "   python3 motion_detector.py"
 echo ""
 echo " In another terminal:"
-echo "   python3 src/classifier.py"
+echo "   python3 classifier.py"
 echo "================================================"

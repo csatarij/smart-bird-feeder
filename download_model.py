@@ -8,7 +8,7 @@ Option 1 (Default): iNaturalist birds MobileNetV1 — pre-trained on 964 bird
     species, INT8 quantized (~4MB). Best balance of accuracy and speed.
 
 Option 2: Custom fine-tuned model — if you train your own model on local
-    species, place it in models/ and update config/settings.yaml.
+    species, place it in models/ and update settings.yaml.
 
 Option 3: General ImageNet MobileNetV1 — can distinguish "bird" from other
     objects but cannot identify species. Good for testing.
@@ -19,7 +19,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "models"
 
 
@@ -130,7 +130,7 @@ def setup_imagenet_model():
     if ok:
         import tarfile
         with tarfile.open(tgz_path, "r:gz") as tar:
-            tar.extractall(MODELS_DIR)
+            tar.extractall(MODELS_DIR, filter="data")
         tgz_path.unlink()
 
         # Rename to standard name
@@ -206,7 +206,7 @@ def main():
         print("Invalid choice. Run again and select 1, 2, or 3.")
         sys.exit(1)
 
-    print("Done! Update config/settings.yaml if you changed model paths.")
+    print("Done! Update settings.yaml if you changed model paths.")
 
 
 if __name__ == "__main__":

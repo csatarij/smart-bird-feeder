@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the privacy module."""
 
-import sys
 import tempfile
 from pathlib import Path
 
@@ -9,9 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.privacy import extract_roi, save_private_image, strip_exif
+from privacy import extract_roi, save_private_image, strip_exif
 
 
 @pytest.fixture

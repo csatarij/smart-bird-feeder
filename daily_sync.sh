@@ -14,8 +14,8 @@ echo "--- Sync started: $(date) ---"
 
 # Export fresh stats
 python3 -c "
-from src.stats_engine import StatsEngine
-from src.utils import load_config
+from stats_engine import StatsEngine
+from utils import load_config
 config = load_config()
 stats = StatsEngine(config)
 stats.export_daily_summary()
@@ -25,6 +25,6 @@ print('Stats exported successfully')
 "
 
 # Push to GitHub
-python3 src/github_sync.py
+python3 github_sync.py
 
 echo "--- Sync complete: $(date) ---"

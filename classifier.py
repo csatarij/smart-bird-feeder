@@ -17,7 +17,7 @@ Performance note for Pi 1B:
   - The decoupled architecture means capture is never blocked by classification
 
 Usage:
-    python3 src/classifier.py [--config config/settings.yaml] [--once]
+    python3 classifier.py [--config settings.yaml] [--once]
 """
 
 import argparse
@@ -31,10 +31,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.stats_engine import StatsEngine
-from src.utils import load_config, setup_logging, ensure_directories, PROJECT_ROOT
+from stats_engine import StatsEngine
+from utils import load_config, setup_logging, ensure_directories, prune_old_files, PROJECT_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +374,11 @@ class BirdClassifier:
                 count = self.process_queue(stats)
                 if count > 0:
                     stats.export_daily_summary()
+                    max_mb = self.storage_cfg.get("max_storage_mb", 2000)
+                    data_dir = PROJECT_ROOT / self.storage_cfg.get("data_dir", "data")
+                    pruned = prune_old_files(data_dir, max_mb)
+                    if pruned > 0:
+                        self.logger.info(f"Pruned {pruned} old files to stay under {max_mb}MB")
 
                 if once:
                     break
