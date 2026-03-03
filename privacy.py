@@ -4,13 +4,14 @@ Privacy-by-design: only the bird feeder region is ever saved. Full frames
 are processed in memory and immediately discarded. All metadata is stripped.
 """
 
-import io
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 from PIL import Image
 
 try:
     import piexif
+
     HAS_PIEXIF = True
 except ImportError:
     HAS_PIEXIF = False

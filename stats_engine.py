@@ -8,10 +8,10 @@ GitHub data repository and optional dashboard.
 
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-from utils import load_config, setup_logging, PROJECT_ROOT
+from utils import PROJECT_ROOT, load_config, setup_logging
 
 
 class StatsEngine:
@@ -60,9 +60,7 @@ class StatsEngine:
         try:
             self.conn.execute("SELECT user_feedback FROM sightings LIMIT 1")
         except sqlite3.OperationalError:
-            self.conn.execute(
-                "ALTER TABLE sightings ADD COLUMN user_feedback INTEGER"
-            )
+            self.conn.execute("ALTER TABLE sightings ADD COLUMN user_feedback INTEGER")
             self.conn.commit()
 
     def record_feedback(self, sighting_id: int, is_correct: bool):
@@ -152,9 +150,7 @@ class StatsEngine:
             "SELECT species, COUNT(*) as count FROM sightings GROUP BY species ORDER BY count DESC"
         ).fetchall()
 
-        first = self.conn.execute(
-            "SELECT MIN(date) as d FROM sightings"
-        ).fetchone()["d"]
+        first = self.conn.execute("SELECT MIN(date) as d FROM sightings").fetchone()["d"]
 
         active_days = self.conn.execute(
             "SELECT COUNT(DISTINCT date) as d FROM sightings"

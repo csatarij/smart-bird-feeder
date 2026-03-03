@@ -32,12 +32,12 @@ import numpy as np
 from PIL import Image
 
 from stats_engine import StatsEngine
-from utils import load_config, setup_logging, ensure_directories, prune_old_files, PROJECT_ROOT
-
+from utils import PROJECT_ROOT, ensure_directories, load_config, prune_old_files, setup_logging
 
 # ---------------------------------------------------------------------------
 # Inference backends
 # ---------------------------------------------------------------------------
+
 
 class OpenCVDNNBackend:
     """Use OpenCV's DNN module to run TFLite/ONNX models.
@@ -49,6 +49,7 @@ class OpenCVDNNBackend:
 
     def __init__(self, model_path: str, input_size: int, logger):
         import cv2
+
         self.cv2 = cv2
         self.input_size = input_size
         self.logger = logger
@@ -59,8 +60,7 @@ class OpenCVDNNBackend:
         self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
         self.logger.info(
-            f"OpenCV DNN backend loaded: {Path(model_path).name} "
-            f"(OpenCV {cv2.__version__})"
+            f"OpenCV DNN backend loaded: {Path(model_path).name} (OpenCV {cv2.__version__})"
         )
 
     def invoke(self, image_path: Path) -> np.ndarray | None:
@@ -153,9 +153,7 @@ class TFLiteBackend:
             if input_dtype == np.uint8:
                 input_data = np.expand_dims(img_array, axis=0).astype(np.uint8)
             else:
-                input_data = np.expand_dims(
-                    img_array.astype(np.float32) / 127.5 - 1.0, axis=0
-                )
+                input_data = np.expand_dims(img_array.astype(np.float32) / 127.5 - 1.0, axis=0)
 
             self.interpreter.set_tensor(self.input_details[0]["index"], input_data)
             self.interpreter.invoke()
@@ -184,6 +182,7 @@ def create_backend(model_path: str, input_size: int, logger):
     # Strategy 1: OpenCV DNN (works everywhere)
     try:
         import cv2
+
         cv_version = tuple(int(x) for x in cv2.__version__.split(".")[:2])
 
         if model_ext == ".tflite" and cv_version < (4, 8):
@@ -223,6 +222,7 @@ def create_backend(model_path: str, input_size: int, logger):
 # Classifier
 # ---------------------------------------------------------------------------
 
+
 class BirdClassifier:
     """Bird species classifier with automatic backend selection."""
 
@@ -254,10 +254,7 @@ class BirdClassifier:
         labels_path = PROJECT_ROOT / self.cls_cfg["labels_path"]
 
         if not model_path.exists():
-            self.logger.error(
-                f"Model not found at {model_path}. "
-                f"Run: python3 download_model.py"
-            )
+            self.logger.error(f"Model not found at {model_path}. Run: python3 download_model.py")
             return False
 
         if not labels_path.exists():
@@ -308,10 +305,12 @@ class BirdClassifier:
         predictions = []
         for idx in top_indices:
             if idx < len(self.labels):
-                predictions.append({
-                    "species": self.labels[idx],
-                    "confidence": float(output[idx]),
-                })
+                predictions.append(
+                    {
+                        "species": self.labels[idx],
+                        "confidence": float(output[idx]),
+                    }
+                )
 
         if predictions:
             self.logger.info(
@@ -353,8 +352,10 @@ class BirdClassifier:
                 )
                 processed += 1
             else:
-                reason = "no predictions" if not predictions else (
-                    f"low confidence ({predictions[0]['confidence']:.1%})"
+                reason = (
+                    "no predictions"
+                    if not predictions
+                    else (f"low confidence ({predictions[0]['confidence']:.1%})")
                 )
                 self.logger.info(f"Skipping {image_path.name}: {reason}")
                 unclassified_dir = self.classified_dir / "_unclassified"
@@ -389,8 +390,7 @@ class BirdClassifier:
 
             if removed > 0:
                 self.logger.info(
-                    f"keep_best_only: kept best for {species_name}, "
-                    f"removed {removed} other(s)"
+                    f"keep_best_only: kept best for {species_name}, removed {removed} other(s)"
                 )
 
     @staticmethod
@@ -406,10 +406,7 @@ class BirdClassifier:
 
         stats = StatsEngine(self.config)
         poll_interval = self.cls_cfg.get("poll_interval", 5)
-        self.logger.info(
-            f"Classifier ready -- polling {self.captures_dir} "
-            f"every {poll_interval}s"
-        )
+        self.logger.info(f"Classifier ready -- polling {self.captures_dir} every {poll_interval}s")
 
         try:
             while self.running:
@@ -435,7 +432,8 @@ def main():
     parser = argparse.ArgumentParser(description="Bird species classifier")
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument(
-        "--once", action="store_true",
+        "--once",
+        action="store_true",
         help="Process queue once and exit (for cron/testing)",
     )
     args = parser.parse_args()

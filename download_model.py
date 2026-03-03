@@ -14,7 +14,6 @@ Option 3: General ImageNet MobileNetV1 — can distinguish "bird" from other
     objects but cannot identify species. Good for testing.
 """
 
-import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -25,10 +24,14 @@ MODELS_DIR = PROJECT_ROOT / "models"
 
 def download_file(url: str, dest: Path, description: str = ""):
     """Download a file with progress indicator."""
+    if not url.startswith("https://"):
+        raise ValueError(f"Only https:// URLs are permitted, got: {url!r}")
+
     print(f"Downloading {description or dest.name}...")
     print(f"  URL: {url}")
 
     try:
+
         def progress_hook(block_num, block_size, total_size):
             downloaded = block_num * block_size
             if total_size > 0:
@@ -36,7 +39,7 @@ def download_file(url: str, dest: Path, description: str = ""):
                 mb = downloaded / (1024 * 1024)
                 print(f"\r  Progress: {pct}% ({mb:.1f} MB)", end="", flush=True)
 
-        urllib.request.urlretrieve(url, str(dest), reporthook=progress_hook)
+        urllib.request.urlretrieve(url, str(dest), reporthook=progress_hook)  # nosec B310 – https:// enforced above
         print(f"\n  Saved to: {dest}")
         return True
     except Exception as e:
@@ -129,6 +132,7 @@ def setup_imagenet_model():
 
     if ok:
         import tarfile
+
         with tarfile.open(tgz_path, "r:gz") as tar:
             tar.extractall(MODELS_DIR, filter="data")
         tgz_path.unlink()
@@ -164,14 +168,9 @@ def main():
         if setup_imagenet_model():
             # For ImageNet, download ImageNet labels
             labels_url = (
-                "https://storage.googleapis.com/download.tensorflow.org/"
-                "data/ImageNetLabels.txt"
+                "https://storage.googleapis.com/download.tensorflow.org/data/ImageNetLabels.txt"
             )
-            download_file(
-                labels_url,
-                MODELS_DIR / "bird_labels.txt",
-                "ImageNet labels"
-            )
+            download_file(labels_url, MODELS_DIR / "bird_labels.txt", "ImageNet labels")
             print("\nImageNet model ready. This can classify 'bird' vs other")
             print("objects but cannot identify species. Good for testing!")
         print()

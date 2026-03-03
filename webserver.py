@@ -22,15 +22,14 @@ import argparse
 import json
 import mimetypes
 import shutil
-import sqlite3
-import time
-from datetime import datetime
 import socketserver
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import sqlite3
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
-from utils import load_config, setup_logging, PROJECT_ROOT
+from utils import PROJECT_ROOT, load_config, setup_logging
 
 # Resolved once at startup
 CONFIG = None
@@ -65,7 +64,7 @@ def _image_path_to_url(image_path: str | None) -> str | None:
     parts = p.parts
     for i, part in enumerate(parts):
         if part == "classified" and i + 1 < len(parts):
-            return "/photos/" + "/".join(parts[i + 1:])
+            return "/photos/" + "/".join(parts[i + 1 :])
     # Last resort: assume the last two parts are <species>/<filename>
     if len(parts) >= 2:
         return f"/photos/{parts[-2]}/{parts[-1]}"
@@ -75,9 +74,9 @@ def _image_path_to_url(image_path: str | None) -> str | None:
 def get_health_data() -> dict:
     """Gather system health metrics."""
     disk = shutil.disk_usage(str(DATA_DIR))
-    disk_total_gb = disk.total / (1024 ** 3)
-    disk_used_gb = disk.used / (1024 ** 3)
-    disk_free_gb = disk.free / (1024 ** 3)
+    disk_total_gb = disk.total / (1024**3)
+    disk_used_gb = disk.used / (1024**3)
+    disk_free_gb = disk.free / (1024**3)
     disk_pct = (disk.used / disk.total) * 100
 
     # Count photos
@@ -95,9 +94,7 @@ def get_health_data() -> dict:
 
     unclassified_dir = CLASSIFIED_DIR / "_unclassified"
     unclassified_count = (
-        len(list(unclassified_dir.glob("*.jpg")))
-        if unclassified_dir.exists()
-        else 0
+        len(list(unclassified_dir.glob("*.jpg"))) if unclassified_dir.exists() else 0
     )
 
     # DB stats
@@ -109,9 +106,9 @@ def get_health_data() -> dict:
             conn = sqlite3.connect(str(DB_PATH))
             conn.row_factory = sqlite3.Row
             total = conn.execute("SELECT COUNT(*) as c FROM sightings").fetchone()["c"]
-            unique = conn.execute(
-                "SELECT COUNT(DISTINCT species) as c FROM sightings"
-            ).fetchone()["c"]
+            unique = conn.execute("SELECT COUNT(DISTINCT species) as c FROM sightings").fetchone()[
+                "c"
+            ]
             today = datetime.now().strftime("%Y-%m-%d")
             today_count = conn.execute(
                 "SELECT COUNT(*) as c FROM sightings WHERE date = ?", (today,)
@@ -195,12 +192,14 @@ def build_gallery_html() -> str:
         for d in sorted(CLASSIFIED_DIR.iterdir()):
             if d.is_dir() and not d.name.startswith("_"):
                 photos = sorted(d.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
-                species_list.append({
-                    "name": d.name.replace("_", " ").title(),
-                    "dir": d.name,
-                    "count": len(photos),
-                    "recent": [p.name for p in photos[:12]],
-                })
+                species_list.append(
+                    {
+                        "name": d.name.replace("_", " ").title(),
+                        "dir": d.name,
+                        "count": len(photos),
+                        "recent": [p.name for p in photos[:12]],
+                    }
+                )
 
     species_cards = ""
     for sp in species_list:
@@ -1092,7 +1091,7 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
         elif path == "/api/calibration":
             self._serve_calibration_json()
         elif path.startswith("/photos/"):
-            self._serve_photo(path[len("/photos/"):])
+            self._serve_photo(path[len("/photos/") :])
         else:
             self._send_error(404, "Not found")
 
@@ -1133,9 +1132,9 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             today_count = conn.execute(
                 "SELECT COUNT(*) as c FROM sightings WHERE date = ?", (today,)
             ).fetchone()["c"]
-            unique = conn.execute(
-                "SELECT COUNT(DISTINCT species) as c FROM sightings"
-            ).fetchone()["c"]
+            unique = conn.execute("SELECT COUNT(DISTINCT species) as c FROM sightings").fetchone()[
+                "c"
+            ]
             first = conn.execute("SELECT MIN(date) as d FROM sightings").fetchone()["d"]
             active_days = conn.execute(
                 "SELECT COUNT(DISTINCT date) as d FROM sightings"
@@ -1156,8 +1155,7 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             ).fetchall()
 
             hourly = conn.execute(
-                "SELECT hour, COUNT(*) as count FROM sightings "
-                "GROUP BY hour ORDER BY hour"
+                "SELECT hour, COUNT(*) as count FROM sightings GROUP BY hour ORDER BY hour"
             ).fetchall()
             daily = conn.execute(
                 "SELECT date, COUNT(*) as count FROM sightings "
@@ -1181,52 +1179,50 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             conn.close()
 
             avg_per_day = round(total / active_days, 1) if active_days > 0 else 0
-            peak_hour = (
-                max(hourly, key=lambda r: r["count"])["hour"] if hourly else None
-            )
+            peak_hour = max(hourly, key=lambda r: r["count"])["hour"] if hourly else None
 
-            self._serve_json({
-                "total_sightings": total,
-                "today_sightings": today_count,
-                "unique_species": unique,
-                "first_sighting": first,
-                "active_days": active_days,
-                "avg_per_day": avg_per_day,
-                "peak_hour": peak_hour,
-                "most_active_day": (
-                    {"date": most_active["date"], "count": most_active["count"]}
-                    if most_active else None
-                ),
-                "species_ranking": [
-                    {
-                        "species": r["species"],
-                        "count": r["count"],
-                        "photo_url": _image_path_to_url(r["best_photo"]),
-                        "best_confidence": (
-                            round(r["best_confidence"], 3)
-                            if r["best_confidence"] is not None else None
-                        ),
-                    }
-                    for r in species_rows
-                ],
-                "hourly_distribution": {
-                    str(r["hour"]): r["count"] for r in hourly
-                },
-                "daily_counts": [
-                    {"date": r["date"], "count": r["count"]} for r in daily
-                ],
-                "recent_captures": [
-                    {
-                        "timestamp": r["timestamp"],
-                        "species": r["species"],
-                        "confidence": round(r["confidence"], 3),
-                        "photo_url": _image_path_to_url(r["image_path"]),
-                    }
-                    for r in recent
-                    if _image_path_to_url(r["image_path"])
-                ],
-                "generated_at": datetime.now().isoformat(),
-            })
+            self._serve_json(
+                {
+                    "total_sightings": total,
+                    "today_sightings": today_count,
+                    "unique_species": unique,
+                    "first_sighting": first,
+                    "active_days": active_days,
+                    "avg_per_day": avg_per_day,
+                    "peak_hour": peak_hour,
+                    "most_active_day": (
+                        {"date": most_active["date"], "count": most_active["count"]}
+                        if most_active
+                        else None
+                    ),
+                    "species_ranking": [
+                        {
+                            "species": r["species"],
+                            "count": r["count"],
+                            "photo_url": _image_path_to_url(r["best_photo"]),
+                            "best_confidence": (
+                                round(r["best_confidence"], 3)
+                                if r["best_confidence"] is not None
+                                else None
+                            ),
+                        }
+                        for r in species_rows
+                    ],
+                    "hourly_distribution": {str(r["hour"]): r["count"] for r in hourly},
+                    "daily_counts": [{"date": r["date"], "count": r["count"]} for r in daily],
+                    "recent_captures": [
+                        {
+                            "timestamp": r["timestamp"],
+                            "species": r["species"],
+                            "confidence": round(r["confidence"], 3),
+                            "photo_url": _image_path_to_url(r["image_path"]),
+                        }
+                        for r in recent
+                        if _image_path_to_url(r["image_path"])
+                    ],
+                    "generated_at": datetime.now().isoformat(),
+                }
+            )
         except Exception as e:
             self._serve_json({"error": f"Database error: {e}"})
 
@@ -1301,15 +1297,17 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
                 b = row["bin"]
                 rev = row["reviewed"] or 0
                 cor = int(row["correct"] or 0)
-                calibration_bins.append({
-                    "bin": b,
-                    "range": f"{b * 10}–{b * 10 + 10}%",
-                    "total": row["total"],
-                    "reviewed": rev,
-                    "correct": cor,
-                    "avg_confidence": round(row["avg_conf"], 3),
-                    "accuracy": round(cor / rev, 3) if rev > 0 else None,
-                })
+                calibration_bins.append(
+                    {
+                        "bin": b,
+                        "range": f"{b * 10}–{b * 10 + 10}%",
+                        "total": row["total"],
+                        "reviewed": rev,
+                        "correct": cor,
+                        "avg_confidence": round(row["avg_conf"], 3),
+                        "accuracy": round(cor / rev, 3) if rev > 0 else None,
+                    }
+                )
 
             # Species-level confidence breakdown
             species_rows = conn.execute("""
@@ -1359,57 +1357,65 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
                     4,
                 )
 
-            self._serve_json({
-                "total_sightings": overall["total"] or 0,
-                "avg_confidence": round(overall["avg_conf"], 3) if overall["avg_conf"] else None,
-                "min_confidence": round(overall["min_conf"], 3) if overall["min_conf"] else None,
-                "max_confidence": round(overall["max_conf"], 3) if overall["max_conf"] else None,
-                "total_reviewed": reviewed,
-                "total_correct": correct,
-                "overall_accuracy": overall_accuracy,
-                "ece": ece,
-                "calibration_bins": calibration_bins,
-                "species_stats": [
-                    {
-                        "species": r["species"],
-                        "count": r["count"],
-                        "avg_confidence": round(r["avg_conf"], 3),
-                        "min_confidence": round(r["min_conf"], 3),
-                        "max_confidence": round(r["max_conf"], 3),
-                        "reviewed": r["reviewed"] or 0,
-                        "correct": int(r["correct"] or 0),
-                        "accuracy": (
-                            round(int(r["correct"] or 0) / (r["reviewed"]), 3)
-                            if (r["reviewed"] or 0) > 0 else None
-                        ),
-                    }
-                    for r in species_rows
-                ],
-                "daily_confidence": [
-                    {
-                        "date": r["date"],
-                        "avg_confidence": round(r["avg_conf"], 3),
-                        "count": r["count"],
-                    }
-                    for r in daily_rows
-                ],
-                "recent_sightings": [
-                    {
-                        "id": r["id"],
-                        "timestamp": r["timestamp"],
-                        "species": r["species"],
-                        "confidence": round(r["confidence"], 3),
-                        "photo_url": _image_path_to_url(r["image_path"]),
-                        "predictions": (
-                            json.loads(r["predictions_json"])
-                            if r["predictions_json"] else None
-                        ),
-                        "user_feedback": r["user_feedback"],
-                    }
-                    for r in recent_rows
-                ],
-                "generated_at": datetime.now().isoformat(),
-            })
+            self._serve_json(
+                {
+                    "total_sightings": overall["total"] or 0,
+                    "avg_confidence": round(overall["avg_conf"], 3)
+                    if overall["avg_conf"]
+                    else None,
+                    "min_confidence": round(overall["min_conf"], 3)
+                    if overall["min_conf"]
+                    else None,
+                    "max_confidence": round(overall["max_conf"], 3)
+                    if overall["max_conf"]
+                    else None,
+                    "total_reviewed": reviewed,
+                    "total_correct": correct,
+                    "overall_accuracy": overall_accuracy,
+                    "ece": ece,
+                    "calibration_bins": calibration_bins,
+                    "species_stats": [
+                        {
+                            "species": r["species"],
+                            "count": r["count"],
+                            "avg_confidence": round(r["avg_conf"], 3),
+                            "min_confidence": round(r["min_conf"], 3),
+                            "max_confidence": round(r["max_conf"], 3),
+                            "reviewed": r["reviewed"] or 0,
+                            "correct": int(r["correct"] or 0),
+                            "accuracy": (
+                                round(int(r["correct"] or 0) / (r["reviewed"]), 3)
+                                if (r["reviewed"] or 0) > 0
+                                else None
+                            ),
+                        }
+                        for r in species_rows
+                    ],
+                    "daily_confidence": [
+                        {
+                            "date": r["date"],
+                            "avg_confidence": round(r["avg_conf"], 3),
+                            "count": r["count"],
+                        }
+                        for r in daily_rows
+                    ],
+                    "recent_sightings": [
+                        {
+                            "id": r["id"],
+                            "timestamp": r["timestamp"],
+                            "species": r["species"],
+                            "confidence": round(r["confidence"], 3),
+                            "photo_url": _image_path_to_url(r["image_path"]),
+                            "predictions": (
+                                json.loads(r["predictions_json"]) if r["predictions_json"] else None
+                            ),
+                            "user_feedback": r["user_feedback"],
+                        }
+                        for r in recent_rows
+                    ],
+                    "generated_at": datetime.now().isoformat(),
+                }
+            )
         except Exception as e:
             self._serve_json({"error": f"Database error: {e}"})
 
@@ -1474,7 +1480,7 @@ def main():
     STATS_DIR = PROJECT_ROOT / storage.get("stats_dir", "data/stats")
     DB_PATH = PROJECT_ROOT / storage.get("database_path", "data/birds.db")
 
-    host = args.host or web_cfg.get("host", "0.0.0.0")
+    host = args.host or web_cfg.get("host", "0.0.0.0")  # nosec B104 – intentional LAN binding
     port = args.port or web_cfg.get("port", 8080)
 
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):

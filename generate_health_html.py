@@ -12,13 +12,11 @@ useful when you want to copy the file off the Pi for inspection.
 """
 
 import argparse
-import json
 import shutil
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 
-from utils import load_config, PROJECT_ROOT
+from utils import PROJECT_ROOT, load_config
 
 
 def main():
@@ -31,14 +29,13 @@ def main():
 
     data_dir = PROJECT_ROOT / storage.get("data_dir", "data")
     classified_dir = PROJECT_ROOT / storage.get("classified_dir", "data/classified")
-    stats_dir = PROJECT_ROOT / storage.get("stats_dir", "data/stats")
     db_path = PROJECT_ROOT / storage.get("database_path", "data/birds.db")
 
     # Disk
     disk = shutil.disk_usage(str(data_dir))
-    disk_total_gb = round(disk.total / (1024 ** 3), 1)
-    disk_used_gb = round(disk.used / (1024 ** 3), 1)
-    disk_free_gb = round(disk.free / (1024 ** 3), 1)
+    disk_total_gb = round(disk.total / (1024**3), 1)
+    disk_used_gb = round(disk.used / (1024**3), 1)
+    disk_free_gb = round(disk.free / (1024**3), 1)
     disk_pct = round((disk.used / disk.total) * 100, 1)
 
     if disk_pct > 90:
@@ -82,9 +79,7 @@ def main():
         try:
             conn = sqlite3.connect(str(db_path))
             conn.row_factory = sqlite3.Row
-            total_sightings = conn.execute(
-                "SELECT COUNT(*) as c FROM sightings"
-            ).fetchone()["c"]
+            total_sightings = conn.execute("SELECT COUNT(*) as c FROM sightings").fetchone()["c"]
             unique_species = conn.execute(
                 "SELECT COUNT(DISTINCT species) as c FROM sightings"
             ).fetchone()["c"]
