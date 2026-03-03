@@ -49,7 +49,6 @@ storage:
   data_dir: "data"
   captures_dir: "data/captures"
   classified_dir: "data/classified"
-  archive_dir: "data/archive"
   stats_dir: "data/stats"
   database_path: "data/birds.db"
   # Maximum disk usage for photos in MB (oldest are pruned first).
@@ -57,11 +56,6 @@ storage:
   max_storage_mb: 50000
   # Keep only the best photo per visit (highest classification confidence)
   keep_best_only: false
-  # Archive every capture before classification (for algorithm validation).
-  # Copies each snapshot to data/archive/ with a companion .json predictions sidecar.
-  # These originals are NOT moved when classification runs — they stay in archive forever
-  # (subject to max_storage_mb pruning). Set false to disable.
-  archive_captures: true
 
 privacy:
   # Strip EXIF metadata from all saved images

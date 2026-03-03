@@ -105,10 +105,6 @@ def main():
     if not species_rows:
         species_rows = '<tr><td colspan="2" style="color:#999">No species detected yet</td></tr>'
 
-    # Archive counts
-    archive_dir = data_dir / "archive"
-    archive_count = len(list(archive_dir.glob("*.jpg"))) if archive_dir.exists() else 0
-
     # Log
     log_path = data_dir / "bird_feeder.log"
     log_size_mb = round(log_path.stat().st_size / (1024 * 1024), 2) if log_path.exists() else 0
@@ -225,7 +221,6 @@ def main():
         <div class="metric"><div class="value">{classified_count}</div><div class="label">Classified</div></div>
         <div class="metric"><div class="value">{queue_count}</div><div class="label">In Queue</div></div>
         <div class="metric"><div class="value">{unclassified_count}</div><div class="label">Unclassified</div></div>
-        <div class="metric"><div class="value">{archive_count}</div><div class="label">Archived (raw)</div></div>
     </div>
 </div>
 

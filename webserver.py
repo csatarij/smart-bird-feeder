@@ -261,10 +261,6 @@ def get_health_data() -> dict:
     max_rows = int(history_hours * 3600 / max((POWER_CFG or {}).get("interval_seconds", 300), 1))
     power_history = _read_power_history(max_rows)
 
-    # Archive counts
-    archive_dir = DATA_DIR / "archive"
-    archive_count = len(list(archive_dir.glob("*.jpg"))) if archive_dir.exists() else 0
-
     return {
         "timestamp": datetime.now().isoformat(),
         "disk": {
@@ -277,7 +273,6 @@ def get_health_data() -> dict:
             "in_queue": queue_count,
             "classified": classified_count,
             "unclassified": unclassified_count,
-            "archived": archive_count,
             "species": species_dirs,
         },
         "database": db_stats,
@@ -1145,7 +1140,6 @@ function render(d) {
             <div class="metric"><div class="value">${photos.classified}</div><div class="label">Classified</div></div>
             <div class="metric"><div class="value">${photos.in_queue}</div><div class="label">In Queue</div></div>
             <div class="metric"><div class="value">${photos.unclassified}</div><div class="label">Unclassified</div></div>
-            <div class="metric"><div class="value">${photos.archived || 0}</div><div class="label">Archived (raw)</div></div>
         </div>
     </div>
 

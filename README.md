@@ -169,7 +169,7 @@ The built-in web server lets you browse bird photos and monitor the system from 
 The health dashboard auto-refreshes every 30 seconds and shows:
 - Process status (motion detector & classifier running/stopped)
 - Disk usage with visual progress bar
-- Photo counts (classified, queued, unclassified, archived)
+- Photo counts (classified, queued, unclassified)
 - Species breakdown
 - Database stats and recent sightings
 - Log file size
@@ -225,7 +225,6 @@ smart-bird-feeder/
 │   ├── captures/             # Motion-triggered snapshots (classification queue)
 │   ├── classified/           # Species-labeled bird photos
 │   │   └── <species_name>/   # One directory per species
-│   ├── archive/              # Raw captures + predictions JSON (for algorithm validation)
 │   ├── stats/                # JSON statistics exports
 │   ├── birds.db              # SQLite database
 │   └── power_log.csv         # CPU temperature & voltage time-series (vcgencmd)
@@ -244,7 +243,6 @@ Photos are stored locally on the SD card. Storage is managed automatically:
 - **Auto-pruning**: When disk usage exceeds `storage.max_storage_mb` (default: 50 GB), the oldest photos are deleted first.
 - **Keep-best mode**: Set `storage.keep_best_only: true` to keep only the highest-confidence photo per species per day.
 - **Disk check before capture**: The motion detector checks available space before saving new snapshots.
-- **Capture archive** (`storage.archive_captures: true`, default: enabled): Before classification, every snapshot is copied to `data/archive/` with a companion `.json` sidecar containing the raw model predictions. This lets you re-validate or re-train against the original captures at any time without re-processing the queue. Archive files are subject to the same `max_storage_mb` pruning as classified photos.
 
 To grab your data off the Pi:
 
@@ -269,7 +267,6 @@ GitHub sync is available but **disabled by default**. To enable it, set `github.
 |--------|---------|
 | **Camera resolution** | Updated to Pi Camera v2 native max: **3280×2464** (up from 640×480). `privacy.max_saved_dimension` raised to 2048 for higher-quality saves. |
 | **Log retention** | Switched from size-based rotation to **daily rotation with 30-day retention** (`TimedRotatingFileHandler`). Controlled by `logging.rotation: "daily"` and `logging.backup_count: 30`. |
-| **Capture archive** | Every snapshot is now **copied to `data/archive/`** before classification, with a companion `.json` predictions sidecar. Enables offline algorithm validation without re-running the capture pipeline. Configurable via `storage.archive_captures`. |
 | **Power monitoring** | The web server starts a background thread that writes CPU temperature, core voltage, and throttle status to **`data/power_log.csv`** every 5 minutes (configurable). The health dashboard now shows a **Power & Thermal card** with current values and a collapsible 24-hour history. |
 
 ---

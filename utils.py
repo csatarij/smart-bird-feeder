@@ -75,10 +75,7 @@ def setup_logging(config: dict) -> logging.Logger:
 def ensure_directories(config: dict) -> None:
     """Create all data directories if they don't exist."""
     storage = config.get("storage", {})
-    dirs = ["captures_dir", "classified_dir", "stats_dir"]
-    if storage.get("archive_captures", False):
-        dirs.append("archive_dir")
-    for key in dirs:
+    for key in ("captures_dir", "classified_dir", "stats_dir"):
         path = PROJECT_ROOT / storage.get(key, f"data/{key}")
         path.mkdir(parents=True, exist_ok=True)
 
