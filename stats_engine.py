@@ -44,6 +44,7 @@ class StatsEngine:
                 confidence REAL NOT NULL,
                 image_path TEXT,
                 predictions_json TEXT,
+                user_feedback INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -52,6 +53,26 @@ class StatsEngine:
             CREATE INDEX IF NOT EXISTS idx_sightings_timestamp ON sightings(timestamp);
         """)
         self.conn.commit()
+        self._ensure_feedback_column()
+
+    def _ensure_feedback_column(self):
+        """Add user_feedback column to existing databases (migration)."""
+        try:
+            self.conn.execute("SELECT user_feedback FROM sightings LIMIT 1")
+        except sqlite3.OperationalError:
+            self.conn.execute(
+                "ALTER TABLE sightings ADD COLUMN user_feedback INTEGER"
+            )
+            self.conn.commit()
+
+    def record_feedback(self, sighting_id: int, is_correct: bool):
+        """Record user verification of a classification (1=correct, 0=incorrect)."""
+        cursor = self.conn.execute(
+            "UPDATE sightings SET user_feedback = ? WHERE id = ?",
+            (1 if is_correct else 0, sighting_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount
 
     def record_sighting(
         self,
