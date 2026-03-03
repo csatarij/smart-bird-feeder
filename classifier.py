@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import json
 import shutil
 import signal
 import sys
@@ -236,6 +237,11 @@ class BirdClassifier:
 
         self.captures_dir = PROJECT_ROOT / self.storage_cfg["captures_dir"]
         self.classified_dir = PROJECT_ROOT / self.storage_cfg["classified_dir"]
+        self.archive_captures = self.storage_cfg.get("archive_captures", False)
+        self.archive_dir = (
+            PROJECT_ROOT / self.storage_cfg.get("archive_dir", "data/archive")
+            if self.archive_captures else None
+        )
         self.running = True
 
         self.backend = None
@@ -336,6 +342,10 @@ class BirdClassifier:
 
             predictions = self.classify(image_path)
 
+            # Archive the raw capture (with predictions sidecar) before moving
+            if self.archive_captures and self.archive_dir is not None:
+                self._archive_capture(image_path, predictions)
+
             if predictions and predictions[0]["confidence"] >= threshold:
                 top = predictions[0]
                 species_dir = self.classified_dir / self._safe_dirname(top["species"])
@@ -392,6 +402,39 @@ class BirdClassifier:
                 self.logger.info(
                     f"keep_best_only: kept best for {species_name}, removed {removed} other(s)"
                 )
+
+    def _archive_capture(self, image_path: Path, predictions: list[dict] | None) -> None:
+        """Copy a capture to the archive directory with a JSON predictions sidecar.
+
+        The archive directory keeps the original (privacy-processed) snapshot
+        alongside the raw model predictions, so you can later validate or
+        re-run classification without needing to re-capture.
+
+        Layout:
+            data/archive/
+                bird_20240115_103000_123456.jpg
+                bird_20240115_103000_123456.json   ← model predictions
+        """
+        if self.archive_dir is None:
+            return
+        try:
+            self.archive_dir.mkdir(parents=True, exist_ok=True)
+            dest_img = self.archive_dir / image_path.name
+            shutil.copy2(str(image_path), str(dest_img))
+
+            sidecar = self.archive_dir / (image_path.stem + ".json")
+            sidecar.write_text(
+                json.dumps(
+                    {
+                        "captured_at": datetime.now().isoformat(),
+                        "source_file": image_path.name,
+                        "predictions": predictions or [],
+                    },
+                    indent=2,
+                )
+            )
+        except Exception as e:
+            self.logger.warning(f"Archive copy failed for {image_path.name}: {e}")
 
     @staticmethod
     def _safe_dirname(species_name: str) -> str:

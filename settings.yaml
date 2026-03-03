@@ -4,8 +4,9 @@
 camera:
   # "picamera" for Raspberry Pi Camera Module, "usb" for USB webcam
   type: "picamera"
-  resolution_width: 640
-  resolution_height: 480
+  # Pi Camera v2 (IMX219) native maximum: 3280x2464
+  resolution_width: 3280
+  resolution_height: 2464
   framerate: 10
   # Rotation in degrees (0, 90, 180, 270)
   rotation: 0
@@ -48,6 +49,7 @@ storage:
   data_dir: "data"
   captures_dir: "data/captures"
   classified_dir: "data/classified"
+  archive_dir: "data/archive"
   stats_dir: "data/stats"
   database_path: "data/birds.db"
   # Maximum disk usage for photos in MB (oldest are pruned first).
@@ -55,6 +57,11 @@ storage:
   max_storage_mb: 50000
   # Keep only the best photo per visit (highest classification confidence)
   keep_best_only: false
+  # Archive every capture before classification (for algorithm validation).
+  # Copies each snapshot to data/archive/ with a companion .json predictions sidecar.
+  # These originals are NOT moved when classification runs — they stay in archive forever
+  # (subject to max_storage_mb pruning). Set false to disable.
+  archive_captures: true
 
 privacy:
   # Strip EXIF metadata from all saved images
@@ -63,8 +70,9 @@ privacy:
   blur_outside_roi: true
   # Never save the full-frame image (only the ROI crop)
   crop_to_roi_only: true
-  # Maximum image dimension for saved photos (resize down to save space and remove detail)
-  max_saved_dimension: 640
+  # Maximum image dimension for saved photos. Increased to 2048 to retain detail
+  # from the Pi Camera v2 high-res captures (especially useful for algorithm validation).
+  max_saved_dimension: 2048
 
 github:
   # GitHub sync is disabled — photos are kept locally on the 64GB SD card.
@@ -83,9 +91,21 @@ webserver:
   host: "0.0.0.0"
   port: 8080
 
+power_monitoring:
+  # Log CPU temperature and core voltage via vcgencmd (Raspberry Pi only).
+  # Falls back to /sys/class/thermal for temperature if vcgencmd is unavailable.
+  enabled: true
+  # How often to record a measurement (seconds). 300 = every 5 minutes.
+  interval_seconds: 300
+  # CSV log file for the time-series data. Columns: timestamp, cpu_temp_c, core_volts_v, throttled
+  log_file: "data/power_log.csv"
+  # How many hours of history to display on the health dashboard
+  history_hours: 24
+
 logging:
   level: "INFO"
-  # Log to file (rotated daily, max 7 days)
   file: "data/bird_feeder.log"
-  max_bytes: 5242880  # 5MB
-  backup_count: 3
+  # "daily" rotates at midnight (TimedRotatingFileHandler); "size" rotates by file size
+  rotation: "daily"
+  backup_count: 30    # Days of log files to keep (30-day retention)
+  max_bytes: 10485760 # Only used when rotation is "size" (10MB per file)

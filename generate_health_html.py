@@ -14,6 +14,7 @@ useful when you want to copy the file off the Pi for inspection.
 import argparse
 import shutil
 import sqlite3
+import subprocess
 from datetime import datetime
 
 from utils import PROJECT_ROOT, load_config
@@ -104,9 +105,74 @@ def main():
     if not species_rows:
         species_rows = '<tr><td colspan="2" style="color:#999">No species detected yet</td></tr>'
 
+    # Archive counts
+    archive_dir = data_dir / "archive"
+    archive_count = len(list(archive_dir.glob("*.jpg"))) if archive_dir.exists() else 0
+
     # Log
     log_path = data_dir / "bird_feeder.log"
     log_size_mb = round(log_path.stat().st_size / (1024 * 1024), 2) if log_path.exists() else 0
+
+    # Power metrics (current snapshot via vcgencmd / /sys)
+    pm_cfg = config.get("power_monitoring", {})
+    cpu_temp = None
+    core_volts = None
+    throttled = None
+    power_history_rows = ""
+
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "measure_temp"], timeout=3, stderr=subprocess.DEVNULL, text=True
+        )
+        cpu_temp = round(float(out.strip().replace("temp=", "").replace("'C", "")), 1)
+    except Exception:
+        pass
+
+    if cpu_temp is None:
+        try:
+            raw = Path("/sys/class/thermal/thermal_zone0/temp").read_text().strip()
+            cpu_temp = round(int(raw) / 1000.0, 1)
+        except Exception:
+            pass
+
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "measure_volts", "core"], timeout=3, stderr=subprocess.DEVNULL, text=True
+        )
+        core_volts = round(float(out.strip().replace("volt=", "").replace("V", "")), 4)
+    except Exception:
+        pass
+
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "get_throttled"], timeout=3, stderr=subprocess.DEVNULL, text=True
+        )
+        throttled = out.strip().replace("throttled=", "")
+    except Exception:
+        pass
+
+    # Read last 12 rows from power log CSV
+    power_log_path = PROJECT_ROOT / pm_cfg.get("log_file", "data/power_log.csv")
+    if power_log_path.exists():
+        try:
+            lines = power_log_path.read_text().splitlines()
+            data_lines = [l for l in lines[1:] if l.strip()]
+            for line in reversed(data_lines[-12:]):
+                parts = line.split(",")
+                if len(parts) >= 3:
+                    ts = parts[0]
+                    t = f"{float(parts[1]):.1f}&deg;C" if parts[1] else "--"
+                    v = f"{float(parts[2]):.4f} V" if parts[2] else "--"
+                    power_history_rows += f"<tr><td>{ts}</td><td>{t}</td><td>{v}</td></tr>\n"
+        except Exception:
+            pass
+
+    cpu_temp_str = f"{cpu_temp}&deg;C" if cpu_temp is not None else "N/A"
+    core_volts_str = f"{core_volts} V" if core_volts is not None else "N/A"
+    is_throttled = throttled and throttled != "0x0"
+    throttle_str = ("THROTTLED (" + throttled + ")") if is_throttled else ("OK" if throttled else "N/A")
+    temp_color = "#f44336" if (cpu_temp or 0) > 80 else "#ff9800" if (cpu_temp or 0) > 70 else "#4caf50"
+    throttle_color = "#f44336" if is_throttled else "#4caf50"
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -159,6 +225,7 @@ def main():
         <div class="metric"><div class="value">{classified_count}</div><div class="label">Classified</div></div>
         <div class="metric"><div class="value">{queue_count}</div><div class="label">In Queue</div></div>
         <div class="metric"><div class="value">{unclassified_count}</div><div class="label">Unclassified</div></div>
+        <div class="metric"><div class="value">{archive_count}</div><div class="label">Archived (raw)</div></div>
     </div>
 </div>
 
@@ -191,6 +258,18 @@ def main():
 <div class="card">
     <h2>Log File</h2>
     <div class="metric"><div class="value">{log_size_mb} MB</div><div class="label">Log Size</div></div>
+</div>
+
+<div class="card">
+    <h2>Power &amp; Thermal</h2>
+    <div class="grid">
+        <div class="metric"><div class="value" style="color:{temp_color}">{cpu_temp_str}</div><div class="label">CPU Temperature</div></div>
+        <div class="metric"><div class="value">{core_volts_str}</div><div class="label">Core Voltage</div></div>
+        <div class="metric"><div class="value" style="color:{throttle_color}">{throttle_str}</div><div class="label">Throttle Status</div></div>
+    </div>
+    {f'''<details style="margin-top:1rem"><summary style="cursor:pointer;color:#666;font-size:0.9rem">Recent history</summary>
+    <table style="margin-top:0.5rem"><tr><th>Time</th><th>Temp</th><th>Voltage</th></tr>
+    {power_history_rows}</table></details>''' if power_history_rows else ''}
 </div>
 </body>
 </html>"""
