@@ -16,6 +16,7 @@ import shutil
 import sqlite3
 import subprocess
 from datetime import datetime
+from pathlib import Path
 
 from utils import PROJECT_ROOT, load_config
 
@@ -152,7 +153,7 @@ def main():
     if power_log_path.exists():
         try:
             lines = power_log_path.read_text().splitlines()
-            data_lines = [l for l in lines[1:] if l.strip()]
+            data_lines = [ln for ln in lines[1:] if ln.strip()]
             for line in reversed(data_lines[-12:]):
                 parts = line.split(",")
                 if len(parts) >= 3:
@@ -166,8 +167,12 @@ def main():
     cpu_temp_str = f"{cpu_temp}&deg;C" if cpu_temp is not None else "N/A"
     core_volts_str = f"{core_volts} V" if core_volts is not None else "N/A"
     is_throttled = throttled and throttled != "0x0"
-    throttle_str = ("THROTTLED (" + throttled + ")") if is_throttled else ("OK" if throttled else "N/A")
-    temp_color = "#f44336" if (cpu_temp or 0) > 80 else "#ff9800" if (cpu_temp or 0) > 70 else "#4caf50"
+    throttle_str = (
+        ("THROTTLED (" + throttled + ")") if is_throttled else ("OK" if throttled else "N/A")
+    )
+    temp_color = (
+        "#f44336" if (cpu_temp or 0) > 80 else "#ff9800" if (cpu_temp or 0) > 70 else "#4caf50"
+    )
     throttle_color = "#f44336" if is_throttled else "#4caf50"
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -205,22 +210,36 @@ def main():
 <div class="card">
     <h2>Disk Usage ({disk_status})</h2>
     <div class="grid">
-        <div class="metric"><div class="value">{disk_free_gb} GB</div><div class="label">Free</div></div>
-        <div class="metric"><div class="value">{disk_used_gb} GB</div><div class="label">Used</div></div>
-        <div class="metric"><div class="value">{disk_total_gb} GB</div><div class="label">Total</div></div>
+        <div class="metric"><div class="value">{
+        disk_free_gb
+    } GB</div><div class="label">Free</div></div>
+        <div class="metric"><div class="value">{
+        disk_used_gb
+    } GB</div><div class="label">Used</div></div>
+        <div class="metric"><div class="value">{
+        disk_total_gb
+    } GB</div><div class="label">Total</div></div>
     </div>
     <div class="bar-bg">
         <div class="bar-fill" style="width:{disk_pct}%;background:{disk_color}"></div>
     </div>
-    <div style="text-align:center;margin-top:4px;font-size:0.85rem;color:#666">{disk_pct}% used</div>
+    <div style="text-align:center;margin-top:4px;font-size:0.85rem;color:#666">{
+        disk_pct
+    }% used</div>
 </div>
 
 <div class="card">
     <h2>Photos</h2>
     <div class="grid">
-        <div class="metric"><div class="value">{classified_count}</div><div class="label">Classified</div></div>
-        <div class="metric"><div class="value">{queue_count}</div><div class="label">In Queue</div></div>
-        <div class="metric"><div class="value">{unclassified_count}</div><div class="label">Unclassified</div></div>
+        <div class="metric"><div class="value">{
+        classified_count
+    }</div><div class="label">Classified</div></div>
+        <div class="metric"><div class="value">{
+        queue_count
+    }</div><div class="label">In Queue</div></div>
+        <div class="metric"><div class="value">{
+        unclassified_count
+    }</div><div class="label">Unclassified</div></div>
     </div>
 </div>
 
@@ -235,10 +254,18 @@ def main():
 <div class="card">
     <h2>Database</h2>
     <div class="grid">
-        <div class="metric"><div class="value">{total_sightings}</div><div class="label">Total Sightings</div></div>
-        <div class="metric"><div class="value">{unique_species}</div><div class="label">Unique Species</div></div>
-        <div class="metric"><div class="value">{today_sightings}</div><div class="label">Today</div></div>
-        <div class="metric"><div class="value">{db_size_mb} MB</div><div class="label">DB Size</div></div>
+        <div class="metric"><div class="value">{
+        total_sightings
+    }</div><div class="label">Total Sightings</div></div>
+        <div class="metric"><div class="value">{
+        unique_species
+    }</div><div class="label">Unique Species</div></div>
+        <div class="metric"><div class="value">{
+        today_sightings
+    }</div><div class="label">Today</div></div>
+        <div class="metric"><div class="value">{
+        db_size_mb
+    } MB</div><div class="label">DB Size</div></div>
     </div>
 </div>
 
@@ -252,19 +279,31 @@ def main():
 
 <div class="card">
     <h2>Log File</h2>
-    <div class="metric"><div class="value">{log_size_mb} MB</div><div class="label">Log Size</div></div>
+    <div class="metric"><div class="value">{
+        log_size_mb
+    } MB</div><div class="label">Log Size</div></div>
 </div>
 
 <div class="card">
     <h2>Power &amp; Thermal</h2>
     <div class="grid">
-        <div class="metric"><div class="value" style="color:{temp_color}">{cpu_temp_str}</div><div class="label">CPU Temperature</div></div>
-        <div class="metric"><div class="value">{core_volts_str}</div><div class="label">Core Voltage</div></div>
-        <div class="metric"><div class="value" style="color:{throttle_color}">{throttle_str}</div><div class="label">Throttle Status</div></div>
+        <div class="metric"><div class="value" style="color:{temp_color}">{
+        cpu_temp_str
+    }</div><div class="label">CPU Temperature</div></div>
+        <div class="metric"><div class="value">{
+        core_volts_str
+    }</div><div class="label">Core Voltage</div></div>
+        <div class="metric"><div class="value" style="color:{throttle_color}">{
+        throttle_str
+    }</div><div class="label">Throttle Status</div></div>
     </div>
-    {f'''<details style="margin-top:1rem"><summary style="cursor:pointer;color:#666;font-size:0.9rem">Recent history</summary>
+    {
+        f'''<details style="margin-top:1rem"><summary style="cursor:pointer;color:#666;font-size:0.9rem">Recent history</summary>
     <table style="margin-top:0.5rem"><tr><th>Time</th><th>Temp</th><th>Voltage</th></tr>
-    {power_history_rows}</table></details>''' if power_history_rows else ''}
+    {power_history_rows}</table></details>'''
+        if power_history_rows
+        else ""
+    }
 </div>
 </body>
 </html>"""

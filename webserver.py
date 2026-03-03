@@ -22,11 +22,11 @@ import argparse
 import json
 import mimetypes
 import shutil
+import socketserver
+import sqlite3
 import subprocess
 import threading
 import time
-import socketserver
-import sqlite3
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -90,9 +90,7 @@ def get_power_metrics() -> dict:
             ["vcgencmd", "measure_temp"], timeout=3, stderr=subprocess.DEVNULL, text=True
         )
         # "temp=45.0'C"
-        metrics["cpu_temp_c"] = round(
-            float(out.strip().replace("temp=", "").replace("'C", "")), 1
-        )
+        metrics["cpu_temp_c"] = round(float(out.strip().replace("temp=", "").replace("'C", "")), 1)
     except Exception:
         pass
 
@@ -107,12 +105,12 @@ def get_power_metrics() -> dict:
     try:
         out = subprocess.check_output(
             ["vcgencmd", "measure_volts", "core"],
-            timeout=3, stderr=subprocess.DEVNULL, text=True,
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+            text=True,
         )
         # "volt=1.3500V"
-        metrics["core_volts_v"] = round(
-            float(out.strip().replace("volt=", "").replace("V", "")), 4
-        )
+        metrics["core_volts_v"] = round(float(out.strip().replace("volt=", "").replace("V", "")), 4)
     except Exception:
         pass
 
@@ -120,7 +118,9 @@ def get_power_metrics() -> dict:
     try:
         out = subprocess.check_output(
             ["vcgencmd", "get_throttled"],
-            timeout=3, stderr=subprocess.DEVNULL, text=True,
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+            text=True,
         )
         # "throttled=0x0"
         metrics["throttled"] = out.strip().replace("throttled=", "")
@@ -142,17 +142,19 @@ def _read_power_history(max_rows: int = 288) -> list[dict]:
         return []
     try:
         lines = log_file.read_text().splitlines()
-        data_lines = [l for l in lines[1:] if l.strip()]  # skip header
+        data_lines = [ln for ln in lines[1:] if ln.strip()]  # skip header
         rows = []
         for line in data_lines[-max_rows:]:
             parts = line.split(",")
             if len(parts) >= 3:
-                rows.append({
-                    "ts": parts[0],
-                    "cpu_temp_c": float(parts[1]) if parts[1] else None,
-                    "core_volts_v": float(parts[2]) if parts[2] else None,
-                    "throttled": parts[3].strip() if len(parts) > 3 else None,
-                })
+                rows.append(
+                    {
+                        "ts": parts[0],
+                        "cpu_temp_c": float(parts[1]) if parts[1] else None,
+                        "core_volts_v": float(parts[2]) if parts[2] else None,
+                        "throttled": parts[3].strip() if len(parts) > 3 else None,
+                    }
+                )
         return rows
     except Exception:
         return []
