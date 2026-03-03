@@ -6,7 +6,7 @@
 |------|-------------|-------|
 | Raspberry Pi 1 Model B | ~$10 (used) | 512MB RAM version required |
 | Pi Camera Module v1.3 | ~$15 | Or any USB webcam |
-| 16-32GB microSD | ~$8 | Class 10 / A1 recommended |
+| 64GB microSD | ~$10 | Class 10 / A1 recommended; photos stored locally |
 | 5V 1A power supply | ~$5 | Micro-USB, stable output |
 | Weatherproof enclosure | ~$10-20 | IP65+ for outdoor use |
 | Bird feeder | ~$10-30 | Platform style works best (flat surface) |
@@ -57,7 +57,7 @@ For outdoor deployment:
 ### USB Webcam
 1. Plug into any USB port
 2. Verify with `ls /dev/video*` (should show `/dev/video0`)
-3. Set `camera.type: "usb"` in `config/settings.yaml`
+3. Set `camera.type: "usb"` in `settings.yaml`
 
 ## Power Considerations
 

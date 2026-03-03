@@ -7,7 +7,7 @@
 | CPU | ARM11 @ 700MHz, single-core | ~15-30s per TFLite inference |
 | RAM | 512MB (shared with GPU) | ~350MB usable; must be frugal |
 | GPU | VideoCore IV | Not used (no GPU-accelerated TFLite for ARMv6) |
-| Storage I/O | SD card (Class 10: ~20MB/s) | Image saves take ~100ms |
+| Storage | 64GB SD card (Class 10: ~20MB/s) | Image saves take ~100ms; auto-pruning at configurable limit |
 | USB | USB 2.0 (shared bus) | Camera + storage compete for bandwidth |
 
 ## Measured Performance (Approximate)
@@ -25,6 +25,10 @@
 ### Total idle footprint
 
 Motion detector loop: ~30MB RAM, ~20% CPU at 10 FPS check rate.
+
+### Web server footprint
+
+The built-in web server (`webserver.py`) uses the Python standard library `http.server` — no Flask or other framework. Idle footprint is ~15-30MB RAM and negligible CPU. Serving a gallery page with thumbnails briefly spikes to ~5% CPU as it reads directory listings. The MemoryMax for the systemd unit is set to 100MB as a safety cap.
 
 ### During classification
 
@@ -77,12 +81,23 @@ With 512MB total (350MB usable), memory is the tightest constraint:
 - Linux kernel + base services: ~100MB
 - Python interpreter: ~15MB
 - Motion detector: ~30MB
+- Web server (idle): ~20MB
 - Classifier (during inference): ~80MB
 - SQLite: ~5MB
-- **Total during classification: ~230MB** (leaves ~120MB headroom)
+- **Total during classification: ~250MB** (leaves ~100MB headroom)
 
 To stay safe:
 - Only one TFLite inference at a time (enforced by single classifier process)
 - Images are loaded one at a time, never batched in memory
 - NumPy arrays are explicitly freed after use
 - The classifier uses `Nice=10` to yield to the motion detector
+- The web server systemd unit has `MemoryMax=100M` as a safety cap
+
+## Storage Management
+
+With a 64GB SD card, storage is plentiful but not unlimited. The system manages it automatically:
+
+- **Auto-pruning** (`utils.prune_old_files`): When the classified photos directory exceeds `storage.max_storage_mb` (default: 50,000 MB / ~50 GB), the oldest photos are deleted first.
+- **Keep-best mode**: Setting `storage.keep_best_only: true` retains only the highest-confidence photo per species per day, dramatically reducing storage usage.
+- **Disk check before capture**: The motion detector verifies free space before saving new snapshots.
+- **GitHub sync disabled by default**: Photos stay on the SD card. Copy them off with `scp` whenever you like.
