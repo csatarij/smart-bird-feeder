@@ -70,14 +70,26 @@ class OpenCVDNNBackend:
             if img is None:
                 return None
 
-            # Create blob: resize, scale, swap channels
-            # For quantized uint8 models, use scalefactor=1.0, no mean subtraction
-            # For float models, use scalefactor=1/127.5, mean=(127.5, 127.5, 127.5)
+            # Detect if model expects uint8 or float input by checking
+            # the input layer. INT8 quantized models expect [0,255] uint8;
+            # float models expect normalized [-1,1] or [0,1] input.
+            layer = self.net.getLayer(0)
+            input_type = layer.type if layer else ""
+            is_quantized = "Int8" in input_type or "Quantiz" in input_type
+
+            if is_quantized:
+                scalefactor = 1.0
+                mean = (0, 0, 0)
+            else:
+                # Default to [0,1] normalization for float models
+                scalefactor = 1.0 / 255.0
+                mean = (0, 0, 0)
+
             blob = self.cv2.dnn.blobFromImage(
                 img,
-                scalefactor=1.0 / 255.0,
+                scalefactor=scalefactor,
                 size=(self.input_size, self.input_size),
-                mean=(0, 0, 0),
+                mean=mean,
                 swapRB=True,  # BGR -> RGB
                 crop=False,
             )
@@ -349,7 +361,37 @@ class BirdClassifier:
                 unclassified_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(image_path), str(unclassified_dir / image_path.name))
 
+        if processed > 0 and self.storage_cfg.get("keep_best_only", False):
+            self._prune_to_best_only(stats)
+
         return processed
+
+    def _prune_to_best_only(self, stats: StatsEngine):
+        """Keep only the highest-confidence photo per species for today."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        summary = stats.get_daily_summary(today)
+
+        for species_name, sp_stats in summary.get("species", {}).items():
+            best_image = sp_stats.get("best_image")
+            if not best_image:
+                continue
+
+            best_path = PROJECT_ROOT / best_image
+            species_dir = self.classified_dir / self._safe_dirname(species_name)
+            if not species_dir.is_dir():
+                continue
+
+            removed = 0
+            for photo in species_dir.glob("*.jpg"):
+                if photo != best_path and today in photo.name:
+                    photo.unlink()
+                    removed += 1
+
+            if removed > 0:
+                self.logger.info(
+                    f"keep_best_only: kept best for {species_name}, "
+                    f"removed {removed} other(s)"
+                )
 
     @staticmethod
     def _safe_dirname(species_name: str) -> str:

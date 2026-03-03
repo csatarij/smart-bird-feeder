@@ -50,8 +50,9 @@ storage:
   classified_dir: "data/classified"
   stats_dir: "data/stats"
   database_path: "data/birds.db"
-  # Maximum disk usage for photos in MB (oldest are pruned first)
-  max_storage_mb: 2000
+  # Maximum disk usage for photos in MB (oldest are pruned first).
+  # With a 64GB SD card you have plenty of room.
+  max_storage_mb: 50000
   # Keep only the best photo per visit (highest classification confidence)
   keep_best_only: false
 
@@ -66,19 +67,21 @@ privacy:
   max_saved_dimension: 640
 
 github:
-  # Enable automatic GitHub sync
+  # GitHub sync is disabled — photos are kept locally on the 64GB SD card.
+  # You can manually copy data/classified/ and data/stats/ off the Pi as needed.
+  # To re-enable, set enabled: true and configure repo_url.
   enabled: false
-  # Repository URL (SSH recommended for key-based auth)
-  repo_url: "git@github.com:YOUR_USERNAME/bird-feeder-data.git"
-  # Branch name
+  repo_url: ""
   branch: "main"
-  # What to sync
   sync_photos: true
   sync_stats: true
-  # Maximum photos to upload per day (bandwidth consideration)
   max_daily_uploads: 20
-  # Commit message template
   commit_template: "Daily bird update: {date} — {count} sightings"
+
+webserver:
+  # Built-in photo browser — access from any device on the local network
+  host: "0.0.0.0"
+  port: 8080
 
 logging:
   level: "INFO"
