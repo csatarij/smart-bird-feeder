@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Check style (ruff lint)
+        run: ruff check .
+
+      - name: Check formatting (ruff format)
+        run: ruff format --check .
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        # opencv-python-headless and numpy replace the apt packages from Pi.
+        # picamera2 is not needed — it's lazy-imported inside _init_camera().
+        run: pip install -r requirements.txt opencv-python-headless numpy
+
+      - name: Run tests
+        run: pytest -v
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit
+
+      - name: Scan for security issues
+        # -ll: medium and high severity only (skips low-noise warnings)
+        # --exclude: skip venv, data, and downloaded models
+        run: bandit -r . --exclude ./.git,./venv,./data,./models -ll
