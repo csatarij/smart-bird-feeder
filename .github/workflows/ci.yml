@@ -28,6 +28,14 @@ jobs:
 
   test:
     name: Tests
+    # Currently runs on ubuntu-latest for speed and availability.
+    # The unit tests mock all Pi hardware (frames are NumPy arrays, picamera2 is
+    # lazy-imported with a try/except), so the OS difference does not affect results.
+    #
+    # To test on real Raspberry Pi hardware instead, register a self-hosted runner:
+    #   https://docs.github.com/en/actions/hosting-your-own-runners
+    # Then replace 'ubuntu-latest' below with: [self-hosted, raspberry-pi]
+    # And replace the pip install step with: sudo bash setup.sh
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +46,8 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        # opencv-python-headless and numpy replace the apt packages from Pi.
-        # picamera2 is not needed — it's lazy-imported inside _init_camera().
+        # opencv-python-headless is the pip equivalent of the Pi's apt python3-opencv.
+        # picamera2 is never imported at module level, so it is safe to skip here.
         run: pip install -r requirements.txt opencv-python-headless numpy
 
       - name: Run tests
