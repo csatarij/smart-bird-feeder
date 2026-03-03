@@ -219,6 +219,7 @@ def build_gallery_html() -> str:
     <strong>Bird Feeder</strong>
     <div>
         <a href="/">Photos</a>
+        <a href="/stats">Statistics</a>
         <a href="/health">Health</a>
     </div>
 </nav>
@@ -229,6 +230,194 @@ def build_gallery_html() -> str:
     </div>
     {species_cards if species_cards else '<div class="empty">No classified photos yet. The classifier will populate this page as birds are detected.</div>'}
 </div>
+</body>
+</html>"""
+
+
+def build_stats_html() -> str:
+    """Build the capture statistics HTML page."""
+    return STATS_HTML_TEMPLATE
+
+
+STATS_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bird Feeder - Capture Statistics</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: #f5f5f5; color: #333; }
+    nav { background: #2e7d32; color: white; padding: 1rem 2rem; display: flex;
+          justify-content: space-between; align-items: center; }
+    nav a { color: white; text-decoration: none; margin-left: 1.5rem; opacity: 0.85; }
+    nav a:hover { opacity: 1; }
+    nav a.active { opacity: 1; border-bottom: 2px solid white; padding-bottom: 2px; }
+    .container { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem;
+            margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .card h2 { color: #2e7d32; margin-bottom: 1.2rem; font-size: 1.1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
+    .metric { text-align: center; padding: 1rem; background: #f9f9f9; border-radius: 6px; }
+    .metric .value { font-size: 2rem; font-weight: bold; color: #2e7d32; }
+    .metric .label { font-size: 0.85rem; color: #666; margin-top: 0.3rem; }
+    /* Species bars */
+    .species-row { display: flex; align-items: center; margin-bottom: 0.6rem; gap: 0.75rem; }
+    .species-name { min-width: 130px; font-size: 0.9rem; text-transform: capitalize; }
+    .bar-track { flex: 1; background: #e8f5e9; border-radius: 4px; height: 22px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #4caf50; border-radius: 4px;
+                transition: width 0.4s ease; display: flex; align-items: center;
+                padding-left: 6px; min-width: 2px; }
+    .bar-count { font-size: 0.8rem; color: white; font-weight: 600; white-space: nowrap; }
+    .bar-count-outside { font-size: 0.8rem; color: #555; margin-left: 6px; }
+    /* Daily / hourly charts */
+    .chart { display: flex; align-items: flex-end; gap: 4px; height: 120px;
+             padding-top: 0.5rem; }
+    .chart-col { display: flex; flex-direction: column; align-items: center;
+                 flex: 1; height: 100%; justify-content: flex-end; }
+    .chart-bar { width: 100%; background: #81c784; border-radius: 3px 3px 0 0;
+                 min-height: 2px; transition: height 0.4s ease; }
+    .chart-bar:hover { background: #4caf50; }
+    .chart-label { font-size: 0.65rem; color: #888; margin-top: 3px; text-align: center; }
+    .chart-value { font-size: 0.65rem; color: #555; margin-bottom: 2px; }
+    .empty { color: #999; font-size: 0.9rem; padding: 1rem 0; }
+    .refresh-info { text-align: center; color: #999; font-size: 0.8rem; margin-top: 1rem; }
+    .error { color: #f44336; }
+    .first-seen { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<nav>
+    <strong>Bird Feeder</strong>
+    <div>
+        <a href="/">Photos</a>
+        <a href="/stats" class="active">Statistics</a>
+        <a href="/health">Health</a>
+    </div>
+</nav>
+<div class="container">
+    <div id="content">Loading statistics...</div>
+    <div class="refresh-info">Auto-refreshes every 60 seconds</div>
+</div>
+<script>
+function render(d) {
+    if (d.error) {
+        document.getElementById('content').innerHTML =
+            '<div class="card error">' + d.error + '</div>';
+        return;
+    }
+
+    // --- Summary cards ---
+    const firstSeen = d.first_sighting
+        ? '<div class="first-seen">First sighting: ' + d.first_sighting + '</div>'
+        : '';
+
+    // --- Species ranking bars ---
+    const total = d.total_sightings || 1;
+    let speciesBars = '';
+    if (d.species_ranking && d.species_ranking.length > 0) {
+        const maxCount = d.species_ranking[0].count;
+        d.species_ranking.forEach(s => {
+            const pct = maxCount > 0 ? Math.max(2, Math.round((s.count / maxCount) * 100)) : 2;
+            const label = s.count >= 4
+                ? '<span class="bar-count">' + s.count + '</span>'
+                : '';
+            const outside = s.count < 4
+                ? '<span class="bar-count-outside">' + s.count + '</span>'
+                : '';
+            speciesBars += '<div class="species-row">'
+                + '<span class="species-name">' + s.species.replace(/_/g, ' ') + '</span>'
+                + '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%">'
+                + label + '</div></div>' + outside
+                + '</div>';
+        });
+    } else {
+        speciesBars = '<div class="empty">No sightings recorded yet.</div>';
+    }
+
+    // --- Daily chart (last 14 days) ---
+    let dailyChart = '';
+    if (d.daily_counts && d.daily_counts.length > 0) {
+        const maxDaily = Math.max(...d.daily_counts.map(x => x.count), 1);
+        dailyChart = '<div class="chart">';
+        d.daily_counts.forEach(day => {
+            const h = Math.max(2, Math.round((day.count / maxDaily) * 100));
+            const shortDate = day.date.slice(5); // MM-DD
+            dailyChart += '<div class="chart-col">'
+                + '<span class="chart-value">' + day.count + '</span>'
+                + '<div class="chart-bar" style="height:' + h + '%" title="' + day.date + ': ' + day.count + '"></div>'
+                + '<span class="chart-label">' + shortDate + '</span>'
+                + '</div>';
+        });
+        dailyChart += '</div>';
+    } else {
+        dailyChart = '<div class="empty">No data for the last 14 days.</div>';
+    }
+
+    // --- Hourly distribution chart ---
+    let hourlyChart = '';
+    if (d.hourly_distribution && Object.keys(d.hourly_distribution).length > 0) {
+        const hours = Array.from({length: 24}, (_, i) => i);
+        const counts = hours.map(h => d.hourly_distribution[String(h)] || 0);
+        const maxHourly = Math.max(...counts, 1);
+        hourlyChart = '<div class="chart">';
+        hours.forEach((h, i) => {
+            const barH = Math.max(counts[i] > 0 ? 2 : 0, Math.round((counts[i] / maxHourly) * 100));
+            const label = h % 3 === 0 ? String(h).padStart(2, '0') : '';
+            hourlyChart += '<div class="chart-col">'
+                + (counts[i] > 0 ? '<span class="chart-value">' + counts[i] + '</span>' : '<span class="chart-value">&nbsp;</span>')
+                + '<div class="chart-bar" style="height:' + barH + '%" title="' + h + ':00 — ' + counts[i] + ' sightings"></div>'
+                + '<span class="chart-label">' + label + '</span>'
+                + '</div>';
+        });
+        hourlyChart += '</div>';
+    } else {
+        hourlyChart = '<div class="empty">No hourly data yet.</div>';
+    }
+
+    document.getElementById('content').innerHTML = `
+    <div class="card">
+        <h2>Capture Summary</h2>
+        <div class="grid">
+            <div class="metric"><div class="value">${d.total_sightings}</div><div class="label">Total Captures</div></div>
+            <div class="metric"><div class="value">${d.today_sightings}</div><div class="label">Today</div></div>
+            <div class="metric"><div class="value">${d.unique_species}</div><div class="label">Species</div></div>
+            <div class="metric"><div class="value">${d.active_days}</div><div class="label">Active Days</div></div>
+        </div>
+        ${firstSeen}
+    </div>
+
+    <div class="card">
+        <h2>Species Ranking</h2>
+        ${speciesBars}
+    </div>
+
+    <div class="card">
+        <h2>Daily Captures — Last 14 Days</h2>
+        ${dailyChart}
+    </div>
+
+    <div class="card">
+        <h2>Hourly Activity Distribution</h2>
+        ${hourlyChart}
+    </div>
+    `;
+}
+
+function refresh() {
+    fetch('/api/stats')
+        .then(r => r.json())
+        .then(render)
+        .catch(e => {
+            document.getElementById('content').innerHTML =
+                '<div class="card error">Failed to load statistics: ' + e + '</div>';
+        });
+}
+
+refresh();
+setInterval(refresh, 60000);
+</script>
 </body>
 </html>"""
 
@@ -253,6 +442,7 @@ HEALTH_HTML_TEMPLATE = """<!DOCTYPE html>
           justify-content: space-between; align-items: center; }
     nav a { color: white; text-decoration: none; margin-left: 1.5rem; opacity: 0.85; }
     nav a:hover { opacity: 1; }
+    nav a.active { opacity: 1; border-bottom: 2px solid white; padding-bottom: 2px; }
     .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
     .card { background: white; border-radius: 8px; padding: 1.5rem;
             margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
@@ -282,7 +472,8 @@ HEALTH_HTML_TEMPLATE = """<!DOCTYPE html>
     <strong>Bird Feeder</strong>
     <div>
         <a href="/">Photos</a>
-        <a href="/health">Health</a>
+        <a href="/stats">Statistics</a>
+        <a href="/health" class="active">Health</a>
     </div>
 </nav>
 <div class="container">
@@ -422,6 +613,8 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             self._serve_html(build_gallery_html())
         elif path == "/health":
             self._serve_html(build_health_html())
+        elif path == "/stats":
+            self._serve_html(build_stats_html())
         elif path == "/api/health":
             self._serve_json(get_health_data())
         elif path == "/api/stats":
@@ -448,12 +641,62 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _serve_stats_json(self):
-        stats_file = STATS_DIR / "all_time_stats.json"
-        if stats_file.exists():
-            data = json.loads(stats_file.read_text())
-            self._serve_json(data)
-        else:
-            self._serve_json({"error": "No stats generated yet"})
+        """Serve live capture statistics from the database."""
+        if not DB_PATH.exists():
+            self._serve_json({"error": "No database found yet"})
+            return
+        try:
+            conn = sqlite3.connect(str(DB_PATH))
+            conn.row_factory = sqlite3.Row
+
+            total = conn.execute("SELECT COUNT(*) as c FROM sightings").fetchone()["c"]
+            today = datetime.now().strftime("%Y-%m-%d")
+            today_count = conn.execute(
+                "SELECT COUNT(*) as c FROM sightings WHERE date = ?", (today,)
+            ).fetchone()["c"]
+            unique = conn.execute(
+                "SELECT COUNT(DISTINCT species) as c FROM sightings"
+            ).fetchone()["c"]
+            first = conn.execute("SELECT MIN(date) as d FROM sightings").fetchone()["d"]
+            active_days = conn.execute(
+                "SELECT COUNT(DISTINCT date) as d FROM sightings"
+            ).fetchone()["d"]
+
+            species_counts = conn.execute(
+                "SELECT species, COUNT(*) as count FROM sightings "
+                "GROUP BY species ORDER BY count DESC"
+            ).fetchall()
+            hourly = conn.execute(
+                "SELECT hour, COUNT(*) as count FROM sightings "
+                "GROUP BY hour ORDER BY hour"
+            ).fetchall()
+            daily = conn.execute(
+                "SELECT date, COUNT(*) as count FROM sightings "
+                "WHERE date >= date('now', '-14 days') "
+                "GROUP BY date ORDER BY date"
+            ).fetchall()
+
+            conn.close()
+            self._serve_json({
+                "total_sightings": total,
+                "today_sightings": today_count,
+                "unique_species": unique,
+                "first_sighting": first,
+                "active_days": active_days,
+                "species_ranking": [
+                    {"species": r["species"], "count": r["count"]}
+                    for r in species_counts
+                ],
+                "hourly_distribution": {
+                    str(r["hour"]): r["count"] for r in hourly
+                },
+                "daily_counts": [
+                    {"date": r["date"], "count": r["count"]} for r in daily
+                ],
+                "generated_at": datetime.now().isoformat(),
+            })
+        except Exception as e:
+            self._serve_json({"error": f"Database error: {e}"})
 
     def _serve_photo(self, rel_path: str):
         photo_path = CLASSIFIED_DIR / rel_path

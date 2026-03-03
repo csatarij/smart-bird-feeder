@@ -156,6 +156,16 @@ class StatsEngine:
             "generated_at": datetime.now().isoformat(),
         }
 
+    def get_recent_daily_counts(self, days: int = 14) -> list[dict]:
+        """Return per-day sighting counts for the last N days, oldest first."""
+        rows = self.conn.execute(
+            """SELECT date, COUNT(*) as count FROM sightings
+               WHERE date >= date('now', ?)
+               GROUP BY date ORDER BY date""",
+            (f"-{days} days",),
+        ).fetchall()
+        return [{"date": r["date"], "count": r["count"]} for r in rows]
+
     def export_daily_summary(self, date: str | None = None) -> Path:
         """Export daily summary as JSON file."""
         if date is None:
