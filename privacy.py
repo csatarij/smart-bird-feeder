@@ -99,6 +99,35 @@ def resize_if_needed(image_path: str | Path, max_dimension: int) -> None:
     img.save(image_path, "JPEG", quality=90)
 
 
+def check_blurriness(image_path: str | Path) -> dict:
+    """Assess image sharpness using Laplacian variance.
+
+    Returns a dict with:
+        score: float — Laplacian variance (higher = sharper).
+        is_blurry: bool — True if score is below the threshold.
+        assessment: str — Human-readable assessment.
+    """
+    import cv2
+
+    img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        return {"score": 0.0, "is_blurry": True, "assessment": "Could not read image"}
+
+    score = cv2.Laplacian(img, cv2.CV_64F).var()
+
+    # Thresholds calibrated for typical Pi Camera v2 captures
+    if score < 50:
+        assessment = "Very blurry — check camera focus and lens cleanliness"
+    elif score < 100:
+        assessment = "Slightly blurry — consider adjusting focus"
+    elif score < 300:
+        assessment = "Acceptable sharpness"
+    else:
+        assessment = "Sharp image"
+
+    return {"score": round(score, 1), "is_blurry": score < 100, "assessment": assessment}
+
+
 def save_private_image(
     frame: np.ndarray,
     output_path: str | Path,

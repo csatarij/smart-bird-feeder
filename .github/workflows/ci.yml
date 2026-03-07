@@ -71,3 +71,18 @@ jobs:
         # -ll: medium and high severity only (skips low-noise warnings)
         # --exclude: skip venv, data, and downloaded models
         run: bandit -r . --exclude ./.git,./venv,./data,./models -ll
+
+  gate:
+    name: Merge Gate
+    if: always()
+    needs: [lint, test, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ||
+                "${{ needs.test.result }}" != "success" ||
+                "${{ needs.security.result }}" != "success" ]]; then
+            echo "One or more required jobs failed."
+            exit 1
+          fi

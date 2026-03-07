@@ -1,5 +1,6 @@
 """Shared utilities: config loading, logging, paths."""
 
+import copy
 import logging
 import logging.handlers
 import sys
@@ -8,10 +9,26 @@ from pathlib import Path
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+LOCAL_CONFIG_PATH = PROJECT_ROOT / "settings.local.yaml"
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base. Override values win."""
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
 
 
 def load_config(config_path: str | None = None) -> dict:
-    """Load YAML configuration file."""
+    """Load YAML configuration, merging settings.local.yaml overrides on top.
+
+    Merge order: settings.yaml (defaults, git-tracked) -> settings.local.yaml (user
+    overrides, gitignored). Local values win at any nesting depth.
+    """
     if config_path is None:
         config_path = PROJECT_ROOT / "settings.yaml"
     else:
@@ -22,7 +39,33 @@ def load_config(config_path: str | None = None) -> dict:
         sys.exit(1)
 
     with open(config_path, "r") as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+
+    # Merge local overrides if they exist
+    if LOCAL_CONFIG_PATH.exists():
+        with open(LOCAL_CONFIG_PATH, "r") as f:
+            local = yaml.safe_load(f)
+        if local and isinstance(local, dict):
+            config = _deep_merge(config, local)
+
+    return config
+
+
+def save_local_config(overrides: dict) -> Path:
+    """Save user overrides to settings.local.yaml (gitignored).
+
+    Merges new overrides into any existing local config so that previously
+    saved values are preserved unless explicitly replaced.
+    """
+    existing = {}
+    if LOCAL_CONFIG_PATH.exists():
+        with open(LOCAL_CONFIG_PATH, "r") as f:
+            existing = yaml.safe_load(f) or {}
+
+    merged = _deep_merge(existing, overrides)
+    with open(LOCAL_CONFIG_PATH, "w") as f:
+        yaml.dump(merged, f, default_flow_style=False, sort_keys=False)
+    return LOCAL_CONFIG_PATH
 
 
 def setup_logging(config: dict) -> logging.Logger:
