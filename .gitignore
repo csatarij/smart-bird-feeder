@@ -10,6 +10,9 @@ venv/
 .venv/
 env/
 
+# Local config overrides (user-specific, not tracked)
+settings.local.yaml
+
 # Data directories (bird photos, DB, logs)
 data/
 
