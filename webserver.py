@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
-from utils import PROJECT_ROOT, load_config, setup_logging
+from utils import LOCAL_CONFIG_PATH, PROJECT_ROOT, load_config, save_local_config, setup_logging
 
 # Resolved once at startup
 CONFIG = None
@@ -344,6 +344,17 @@ def build_gallery_html() -> str:
         """
 
     total = sum(s["count"] for s in species_list)
+    onboarding_banner = ""
+    if not _is_onboarding_complete():
+        onboarding_banner = (
+            '<div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:8px;'
+            'padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;'
+            'justify-content:space-between;">'
+            '<span>Setup not completed yet.</span>'
+            '<a href="/onboarding" style="background:#2e7d32;color:white;padding:0.5rem 1.2rem;'
+            'border-radius:6px;text-decoration:none;font-weight:600;">Start Setup Wizard</a>'
+            '</div>'
+        )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -382,9 +393,11 @@ def build_gallery_html() -> str:
         <a href="/stats">Statistics</a>
         <a href="/calibration">Calibration</a>
         <a href="/health">Health</a>
+        <a href="/onboarding">Setup</a>
     </div>
 </nav>
 <div class="container">
+    {onboarding_banner}
     <div class="summary">
         <strong>{len(species_list)}</strong> species &middot;
         <strong>{total}</strong> classified photos
@@ -1243,6 +1256,748 @@ setInterval(refresh, 30000);
 </html>"""
 
 
+def _is_onboarding_complete() -> bool:
+    """Check whether the onboarding wizard has been completed."""
+    if not LOCAL_CONFIG_PATH.exists():
+        return False
+    try:
+        import yaml
+
+        with open(LOCAL_CONFIG_PATH) as f:
+            local = yaml.safe_load(f) or {}
+        return local.get("onboarding_completed", False)
+    except Exception:
+        return False
+
+
+def _capture_test_photo(config: dict) -> Path | None:
+    """Take a single test photo for the onboarding wizard.
+
+    Returns the path to the saved JPEG, or None on failure.
+    """
+    import cv2
+
+    cam_cfg = config["camera"]
+    cam_type = cam_cfg.get("type", "picamera")
+    w = cam_cfg.get("resolution_width", 640)
+    h = cam_cfg.get("resolution_height", 480)
+    rotation = cam_cfg.get("rotation", 0)
+
+    output_path = PROJECT_ROOT / "data" / "onboarding_test.jpg"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    frame = None
+    try:
+        if cam_type == "picamera":
+            try:
+                from picamera2 import Picamera2
+
+                cam = Picamera2()
+                cam_config = cam.create_still_configuration(
+                    main={"size": (w, h), "format": "RGB888"}
+                )
+                cam.configure(cam_config)
+                cam.start()
+                import time
+
+                time.sleep(cam_cfg.get("warmup_seconds", 3))
+                frame = cam.capture_array()
+                cam.stop()
+            except ImportError:
+                try:
+                    import picamera
+                    import picamera.array
+
+                    cam = picamera.PiCamera()
+                    cam.resolution = (w, h)
+                    cam.rotation = rotation
+                    import time
+
+                    time.sleep(cam_cfg.get("warmup_seconds", 3))
+                    with picamera.array.PiRGBArray(cam) as output:
+                        cam.capture(output, "rgb")
+                        frame = output.array
+                    cam.close()
+                except ImportError:
+                    cam_type = "usb"
+
+        if cam_type == "usb" or (cam_type == "picamera" and frame is None):
+            cap = cv2.VideoCapture(0)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            import time
+
+            time.sleep(cam_cfg.get("warmup_seconds", 3))
+            ret, bgr = cap.read()
+            cap.release()
+            if ret:
+                frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+    except Exception:
+        return None
+
+    if frame is None:
+        return None
+
+    # Apply rotation
+    if rotation == 90:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif rotation == 180:
+        frame = cv2.rotate(frame, cv2.ROTATE_180)
+    elif rotation == 270:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+    from PIL import Image
+
+    img = Image.fromarray(frame)
+    # Save at reasonable size for web display
+    max_dim = 1280
+    if max(img.size) > max_dim:
+        ratio = max_dim / max(img.size)
+        img = img.resize((int(img.size[0] * ratio), int(img.size[1] * ratio)), Image.LANCZOS)
+    img.save(output_path, "JPEG", quality=85)
+    return output_path
+
+
+def build_onboarding_html() -> str:
+    """Build the step-by-step onboarding wizard HTML page."""
+    roi = CONFIG.get("motion", {}).get("roi", {})
+    roi_x = roi.get("x", 0.1)
+    roi_y = roi.get("y", 0.1)
+    roi_w = roi.get("width", 0.8)
+    roi_h = roi.get("height", 0.8)
+    rotation = CONFIG.get("camera", {}).get("rotation", 0)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bird Feeder - Setup Wizard</title>
+<style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: #f5f5f5; color: #333; }}
+    nav {{ background: #2e7d32; color: white; padding: 1rem 2rem; display: flex;
+          justify-content: space-between; align-items: center; }}
+    nav a {{ color: white; text-decoration: none; margin-left: 1.5rem; opacity: 0.85; }}
+    nav a:hover {{ opacity: 1; }}
+    nav a.active {{ opacity: 1; border-bottom: 2px solid white; padding-bottom: 2px; }}
+    .container {{ max-width: 900px; margin: 0 auto; padding: 1.5rem; }}
+    .card {{ background: white; border-radius: 8px; padding: 1.5rem;
+            margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
+    .card h2 {{ color: #2e7d32; margin-bottom: 0.8rem; font-size: 1.2rem; }}
+    .card p {{ margin-bottom: 0.8rem; line-height: 1.5; }}
+
+    /* Stepper */
+    .stepper {{ display: flex; gap: 0; margin-bottom: 1.5rem; }}
+    .step-indicator {{ flex: 1; text-align: center; padding: 0.75rem 0.5rem;
+                       background: #e8e8e8; color: #999; font-size: 0.85rem;
+                       border-right: 2px solid #f5f5f5; cursor: pointer;
+                       transition: background 0.2s, color 0.2s; }}
+    .step-indicator:first-child {{ border-radius: 8px 0 0 8px; }}
+    .step-indicator:last-child {{ border-radius: 0 8px 8px 0; border-right: none; }}
+    .step-indicator.active {{ background: #2e7d32; color: white; font-weight: 600; }}
+    .step-indicator.done {{ background: #c8e6c9; color: #2e7d32; }}
+    .step-content {{ display: none; }}
+    .step-content.active {{ display: block; }}
+
+    /* Buttons */
+    .btn {{ display: inline-block; padding: 0.6rem 1.5rem; border-radius: 6px;
+            border: none; cursor: pointer; font-size: 0.95rem; transition: background 0.2s; }}
+    .btn-primary {{ background: #2e7d32; color: white; }}
+    .btn-primary:hover {{ background: #1b5e20; }}
+    .btn-primary:disabled {{ background: #a5d6a7; cursor: not-allowed; }}
+    .btn-secondary {{ background: #e0e0e0; color: #333; }}
+    .btn-secondary:hover {{ background: #bdbdbd; }}
+    .btn-nav {{ display: flex; justify-content: space-between; margin-top: 1.5rem; }}
+
+    /* Photo preview */
+    .photo-frame {{ position: relative; display: inline-block; max-width: 100%;
+                    border: 2px solid #ddd; border-radius: 6px; overflow: hidden;
+                    background: #000; }}
+    .photo-frame img {{ display: block; max-width: 100%; height: auto; }}
+    .no-photo {{ background: #f0f0f0; width: 100%; min-height: 200px; display: flex;
+                 align-items: center; justify-content: center; color: #999;
+                 border-radius: 6px; }}
+
+    /* ROI overlay */
+    #roi-canvas {{ position: absolute; top: 0; left: 0; cursor: crosshair; }}
+
+    /* Status indicators */
+    .status {{ padding: 0.5rem 1rem; border-radius: 6px; margin: 0.5rem 0;
+               font-size: 0.9rem; }}
+    .status-ok {{ background: #e8f5e9; color: #2e7d32; }}
+    .status-warn {{ background: #fff3e0; color: #e65100; }}
+    .status-error {{ background: #fce4ec; color: #c62828; }}
+    .status-info {{ background: #e3f2fd; color: #1565c0; }}
+
+    /* Rotation buttons */
+    .rotation-group {{ display: flex; gap: 0.5rem; margin: 0.8rem 0; flex-wrap: wrap; }}
+    .rotation-group .btn {{ min-width: 60px; }}
+    .rotation-group .btn.selected {{ background: #2e7d32; color: white; }}
+
+    /* Blur score */
+    .blur-meter {{ height: 24px; border-radius: 12px; overflow: hidden;
+                   background: #e0e0e0; margin: 0.5rem 0; }}
+    .blur-fill {{ height: 100%; border-radius: 12px; transition: width 0.5s; }}
+
+    /* Service rows */
+    .service-row {{ display: flex; align-items: center; gap: 1rem; padding: 0.6rem 0;
+                    border-bottom: 1px solid #eee; }}
+    .service-row:last-child {{ border-bottom: none; }}
+    .service-name {{ font-weight: 600; min-width: 140px; }}
+    .service-status {{ font-size: 0.85rem; min-width: 80px; }}
+    .dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+            margin-right: 4px; vertical-align: middle; }}
+    .dot-running {{ background: #4caf50; }}
+    .dot-stopped {{ background: #f44336; }}
+    .dot-unknown {{ background: #ff9800; }}
+
+    .loading {{ color: #999; font-style: italic; }}
+</style>
+</head>
+<body>
+<nav>
+    <strong>Bird Feeder</strong>
+    <div>
+        <a href="/">Photos</a>
+        <a href="/stats">Statistics</a>
+        <a href="/calibration">Calibration</a>
+        <a href="/health">Health</a>
+        <a href="/onboarding" class="active">Setup</a>
+    </div>
+</nav>
+<div class="container">
+    <div class="stepper">
+        <div class="step-indicator active" onclick="goStep(0)">1. Camera</div>
+        <div class="step-indicator" onclick="goStep(1)">2. Orientation</div>
+        <div class="step-indicator" onclick="goStep(2)">3. Focus</div>
+        <div class="step-indicator" onclick="goStep(3)">4. Crop Area</div>
+        <div class="step-indicator" onclick="goStep(4)">5. Finish</div>
+    </div>
+
+    <!-- Step 1: Camera Check -->
+    <div class="step-content active" id="step-0">
+        <div class="card">
+            <h2>Step 1: Camera Check</h2>
+            <p>Let's make sure your camera is connected and working. Click the button below
+               to take a test photo.</p>
+            <button class="btn btn-primary" onclick="capturePhoto()" id="btn-capture">
+                Take Test Photo
+            </button>
+            <div id="capture-status" style="margin-top: 0.8rem;"></div>
+            <div id="capture-preview" style="margin-top: 1rem;"></div>
+        </div>
+        <div class="btn-nav">
+            <div></div>
+            <button class="btn btn-primary" onclick="goStep(1)" id="btn-next-0" disabled>
+                Next: Orientation &rarr;
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 2: Orientation -->
+    <div class="step-content" id="step-1">
+        <div class="card">
+            <h2>Step 2: Check Orientation</h2>
+            <p>Is the image right-side-up? If not, select the correct rotation below and
+               retake the photo.</p>
+            <div id="orientation-preview"></div>
+            <p style="margin-top: 0.8rem;">Rotation:</p>
+            <div class="rotation-group">
+                <button class="btn btn-secondary{' selected' if rotation == 0 else ''}"
+                        onclick="setRotation(0, this)">0&deg;</button>
+                <button class="btn btn-secondary{' selected' if rotation == 90 else ''}"
+                        onclick="setRotation(90, this)">90&deg;</button>
+                <button class="btn btn-secondary{' selected' if rotation == 180 else ''}"
+                        onclick="setRotation(180, this)">180&deg;</button>
+                <button class="btn btn-secondary{' selected' if rotation == 270 else ''}"
+                        onclick="setRotation(270, this)">270&deg;</button>
+            </div>
+            <div id="rotation-status" style="margin-top: 0.5rem;"></div>
+        </div>
+        <div class="btn-nav">
+            <button class="btn btn-secondary" onclick="goStep(0)">&larr; Back</button>
+            <button class="btn btn-primary" onclick="goStep(2)">Next: Focus Check &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Step 3: Blurriness / Focus Check -->
+    <div class="step-content" id="step-2">
+        <div class="card">
+            <h2>Step 3: Focus Check</h2>
+            <p>Checking how sharp the test photo is. If the image is blurry, clean the lens
+               or adjust the camera focus.</p>
+            <div id="blur-preview"></div>
+            <div id="blur-result" style="margin-top: 1rem;">
+                <span class="loading">Analyzing...</span>
+            </div>
+        </div>
+        <div class="btn-nav">
+            <button class="btn btn-secondary" onclick="goStep(1)">&larr; Back</button>
+            <button class="btn btn-primary" onclick="goStep(3)">Next: Crop Area &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Step 4: ROI Selection -->
+    <div class="step-content" id="step-3">
+        <div class="card">
+            <h2>Step 4: Select Crop Area (Region of Interest)</h2>
+            <p>Drag the green rectangle to cover <strong>only your bird feeder</strong>.
+               Only this area will be captured and saved — everything outside is discarded
+               for privacy.</p>
+            <div class="photo-frame" id="roi-frame" style="display:inline-block;">
+                <img id="roi-img" src="" style="display:block; max-width:100%;">
+                <canvas id="roi-canvas"></canvas>
+            </div>
+            <div style="margin-top: 0.8rem;">
+                <button class="btn btn-primary" onclick="saveRoi()" id="btn-save-roi">
+                    Save Crop Area
+                </button>
+                <button class="btn btn-secondary" onclick="resetRoi()" style="margin-left: 0.5rem;">
+                    Reset
+                </button>
+            </div>
+            <div id="roi-status" style="margin-top: 0.5rem;"></div>
+        </div>
+        <div class="btn-nav">
+            <button class="btn btn-secondary" onclick="goStep(2)">&larr; Back</button>
+            <button class="btn btn-primary" onclick="goStep(4)">Next: Finish &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Step 5: Summary & Service Control -->
+    <div class="step-content" id="step-4">
+        <div class="card">
+            <h2>Step 5: Review & Finish</h2>
+            <p>Your setup is ready. Review the configuration and manage services below.</p>
+            <div id="summary-content"><span class="loading">Loading status...</span></div>
+        </div>
+        <div class="card">
+            <h2>Services</h2>
+            <p>These background services handle motion detection, bird classification, and
+               the web interface. They can be set to start automatically at boot.</p>
+            <div id="services-content"><span class="loading">Loading...</span></div>
+        </div>
+        <div class="btn-nav">
+            <button class="btn btn-secondary" onclick="goStep(3)">&larr; Back</button>
+            <button class="btn btn-primary" onclick="finishOnboarding()">
+                Complete Setup
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentStep = 0;
+let testPhotoUrl = null;
+let currentRotation = {rotation};
+
+// ROI state (fractions 0.0-1.0)
+let roiX = {roi_x}, roiY = {roi_y}, roiW = {roi_w}, roiH = {roi_h};
+let dragging = false, dragType = null, dragStartX = 0, dragStartY = 0;
+let origRoiX, origRoiY, origRoiW, origRoiH;
+
+function goStep(n) {{
+    document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.step-indicator').forEach((el, i) => {{
+        el.classList.remove('active');
+        if (i < n) el.classList.add('done');
+        else el.classList.remove('done');
+    }});
+    document.getElementById('step-' + n).classList.add('active');
+    document.querySelectorAll('.step-indicator')[n].classList.add('active');
+    currentStep = n;
+
+    if (n === 1 && testPhotoUrl) updateOrientationPreview();
+    if (n === 2 && testPhotoUrl) checkBlurriness();
+    if (n === 3 && testPhotoUrl) initRoiSelector();
+    if (n === 4) loadSummary();
+}}
+
+function capturePhoto() {{
+    const btn = document.getElementById('btn-capture');
+    const status = document.getElementById('capture-status');
+    btn.disabled = true;
+    btn.textContent = 'Capturing...';
+    status.innerHTML = '<div class="status status-info">Taking photo, please wait (camera warming up)...</div>';
+
+    fetch('/api/onboarding/capture', {{method: 'POST'}})
+        .then(r => r.json())
+        .then(data => {{
+            btn.disabled = false;
+            btn.textContent = 'Retake Photo';
+            if (data.ok) {{
+                testPhotoUrl = data.photo_url + '?t=' + Date.now();
+                status.innerHTML = '<div class="status status-ok">Photo captured successfully!</div>';
+                document.getElementById('capture-preview').innerHTML =
+                    '<div class="photo-frame"><img src="' + testPhotoUrl + '"></div>';
+                document.getElementById('btn-next-0').disabled = false;
+            }} else {{
+                status.innerHTML = '<div class="status status-error">Failed: ' +
+                    (data.error || 'Unknown error') + '</div>';
+            }}
+        }})
+        .catch(e => {{
+            btn.disabled = false;
+            btn.textContent = 'Retry Capture';
+            status.innerHTML = '<div class="status status-error">Network error: ' + e + '</div>';
+        }});
+}}
+
+function setRotation(deg, btn) {{
+    currentRotation = deg;
+    document.querySelectorAll('.rotation-group .btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+
+    const status = document.getElementById('rotation-status');
+    status.innerHTML = '<div class="status status-info">Applying rotation and retaking photo...</div>';
+
+    fetch('/api/onboarding/rotate', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{rotation: deg}})
+    }})
+    .then(r => r.json())
+    .then(data => {{
+        if (data.ok) {{
+            testPhotoUrl = data.photo_url + '?t=' + Date.now();
+            updateOrientationPreview();
+            status.innerHTML = '<div class="status status-ok">Rotation set to ' + deg +
+                '&deg; and saved.</div>';
+        }} else {{
+            status.innerHTML = '<div class="status status-error">' +
+                (data.error || 'Failed') + '</div>';
+        }}
+    }})
+    .catch(e => {{
+        status.innerHTML = '<div class="status status-error">Error: ' + e + '</div>';
+    }});
+}}
+
+function updateOrientationPreview() {{
+    document.getElementById('orientation-preview').innerHTML = testPhotoUrl
+        ? '<div class="photo-frame"><img src="' + testPhotoUrl + '"></div>'
+        : '<div class="no-photo">Take a photo in Step 1 first</div>';
+}}
+
+function checkBlurriness() {{
+    document.getElementById('blur-preview').innerHTML = testPhotoUrl
+        ? '<div class="photo-frame"><img src="' + testPhotoUrl + '" style="max-height:300px;"></div>'
+        : '<div class="no-photo">No photo available</div>';
+
+    const result = document.getElementById('blur-result');
+    result.innerHTML = '<span class="loading">Analyzing sharpness...</span>';
+
+    fetch('/api/onboarding/blur')
+        .then(r => r.json())
+        .then(data => {{
+            if (data.error) {{
+                result.innerHTML = '<div class="status status-error">' + data.error + '</div>';
+                return;
+            }}
+            const maxScore = 500;
+            const pct = Math.min(100, Math.round((data.score / maxScore) * 100));
+            const color = data.is_blurry ? '#f44336' : (data.score < 300 ? '#ff9800' : '#4caf50');
+            result.innerHTML =
+                '<div class="blur-meter"><div class="blur-fill" style="width:' + pct +
+                '%;background:' + color + '"></div></div>' +
+                '<div class="status status-' + (data.is_blurry ? 'warn' : 'ok') + '">' +
+                '<strong>Sharpness score: ' + data.score + '</strong> &mdash; ' +
+                data.assessment + '</div>';
+        }})
+        .catch(e => {{
+            result.innerHTML = '<div class="status status-error">Error: ' + e + '</div>';
+        }});
+}}
+
+/* ── ROI Selector (draggable rectangle) ────────────────────────────── */
+function initRoiSelector() {{
+    const img = document.getElementById('roi-img');
+    if (!testPhotoUrl) {{
+        document.getElementById('roi-frame').innerHTML =
+            '<div class="no-photo">Take a photo in Step 1 first</div>';
+        return;
+    }}
+    img.src = testPhotoUrl;
+    img.onload = function() {{
+        const canvas = document.getElementById('roi-canvas');
+        canvas.width = img.clientWidth;
+        canvas.height = img.clientHeight;
+        drawRoi();
+    }};
+}}
+
+function drawRoi() {{
+    const canvas = document.getElementById('roi-canvas');
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Dim outside ROI
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Clear ROI area
+    const rx = roiX * w, ry = roiY * h, rw = roiW * w, rh = roiH * h;
+    ctx.clearRect(rx, ry, rw, rh);
+
+    // Draw ROI border
+    ctx.strokeStyle = '#4caf50';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rx, ry, rw, rh);
+
+    // Draw corner handles
+    const hs = 8;
+    ctx.fillStyle = '#4caf50';
+    [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]].forEach(([cx, cy]) => {{
+        ctx.fillRect(cx - hs/2, cy - hs/2, hs, hs);
+    }});
+
+    // Label
+    ctx.fillStyle = 'rgba(46,125,50,0.8)';
+    ctx.fillRect(rx, ry - 20, 120, 18);
+    ctx.fillStyle = 'white';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Crop Area (drag to move)', rx + 4, ry - 6);
+}}
+
+function resetRoi() {{
+    roiX = 0.1; roiY = 0.1; roiW = 0.8; roiH = 0.8;
+    drawRoi();
+}}
+
+// Mouse events for ROI dragging
+(function() {{
+    let canvas;
+    function getCanvas() {{
+        if (!canvas) canvas = document.getElementById('roi-canvas');
+        return canvas;
+    }}
+
+    function getPos(e) {{
+        const c = getCanvas();
+        const rect = c.getBoundingClientRect();
+        return [(e.clientX - rect.left) / c.width, (e.clientY - rect.top) / c.height];
+    }}
+
+    function hitTest(fx, fy) {{
+        const hs = 12 / (getCanvas().width || 1);  // handle size in fraction
+        const corners = [
+            ['nw', roiX, roiY], ['ne', roiX + roiW, roiY],
+            ['sw', roiX, roiY + roiH], ['se', roiX + roiW, roiY + roiH]
+        ];
+        for (const [name, cx, cy] of corners) {{
+            if (Math.abs(fx - cx) < hs && Math.abs(fy - cy) < hs) return name;
+        }}
+        if (fx > roiX && fx < roiX + roiW && fy > roiY && fy < roiY + roiH) return 'move';
+        return null;
+    }}
+
+    document.addEventListener('mousedown', function(e) {{
+        if (e.target.id !== 'roi-canvas') return;
+        const [fx, fy] = getPos(e);
+        dragType = hitTest(fx, fy);
+        if (dragType) {{
+            dragging = true;
+            dragStartX = fx; dragStartY = fy;
+            origRoiX = roiX; origRoiY = roiY;
+            origRoiW = roiW; origRoiH = roiH;
+            e.preventDefault();
+        }}
+    }});
+
+    document.addEventListener('mousemove', function(e) {{
+        if (!dragging) return;
+        const [fx, fy] = getPos(e);
+        const dx = fx - dragStartX, dy = fy - dragStartY;
+
+        if (dragType === 'move') {{
+            roiX = Math.max(0, Math.min(1 - origRoiW, origRoiX + dx));
+            roiY = Math.max(0, Math.min(1 - origRoiH, origRoiY + dy));
+        }} else {{
+            let nx = origRoiX, ny = origRoiY, nw = origRoiW, nh = origRoiH;
+            if (dragType.includes('w')) {{ nx = origRoiX + dx; nw = origRoiW - dx; }}
+            if (dragType.includes('e')) {{ nw = origRoiW + dx; }}
+            if (dragType.includes('n')) {{ ny = origRoiY + dy; nh = origRoiH - dy; }}
+            if (dragType.includes('s')) {{ nh = origRoiH + dy; }}
+            // Enforce minimum size and bounds
+            if (nw > 0.05 && nh > 0.05 && nx >= 0 && ny >= 0 &&
+                nx + nw <= 1.01 && ny + nh <= 1.01) {{
+                roiX = nx; roiY = ny; roiW = nw; roiH = nh;
+            }}
+        }}
+        drawRoi();
+        e.preventDefault();
+    }});
+
+    document.addEventListener('mouseup', function() {{ dragging = false; }});
+
+    // Touch support
+    document.addEventListener('touchstart', function(e) {{
+        if (e.target.id !== 'roi-canvas') return;
+        const t = e.touches[0];
+        const rect = getCanvas().getBoundingClientRect();
+        const fx = (t.clientX - rect.left) / getCanvas().width;
+        const fy = (t.clientY - rect.top) / getCanvas().height;
+        dragType = hitTest(fx, fy);
+        if (dragType) {{
+            dragging = true;
+            dragStartX = fx; dragStartY = fy;
+            origRoiX = roiX; origRoiY = roiY;
+            origRoiW = roiW; origRoiH = roiH;
+            e.preventDefault();
+        }}
+    }}, {{passive: false}});
+
+    document.addEventListener('touchmove', function(e) {{
+        if (!dragging) return;
+        const t = e.touches[0];
+        const rect = getCanvas().getBoundingClientRect();
+        const fx = (t.clientX - rect.left) / getCanvas().width;
+        const fy = (t.clientY - rect.top) / getCanvas().height;
+        const dx = fx - dragStartX, dy = fy - dragStartY;
+        if (dragType === 'move') {{
+            roiX = Math.max(0, Math.min(1 - origRoiW, origRoiX + dx));
+            roiY = Math.max(0, Math.min(1 - origRoiH, origRoiY + dy));
+        }} else {{
+            let nx = origRoiX, ny = origRoiY, nw = origRoiW, nh = origRoiH;
+            if (dragType.includes('w')) {{ nx = origRoiX + dx; nw = origRoiW - dx; }}
+            if (dragType.includes('e')) {{ nw = origRoiW + dx; }}
+            if (dragType.includes('n')) {{ ny = origRoiY + dy; nh = origRoiH - dy; }}
+            if (dragType.includes('s')) {{ nh = origRoiH + dy; }}
+            if (nw > 0.05 && nh > 0.05 && nx >= 0 && ny >= 0 &&
+                nx + nw <= 1.01 && ny + nh <= 1.01) {{
+                roiX = nx; roiY = ny; roiW = nw; roiH = nh;
+            }}
+        }}
+        drawRoi();
+        e.preventDefault();
+    }}, {{passive: false}});
+
+    document.addEventListener('touchend', function() {{ dragging = false; }});
+}})();
+
+function saveRoi() {{
+    const status = document.getElementById('roi-status');
+    status.innerHTML = '<div class="status status-info">Saving crop area...</div>';
+
+    fetch('/api/onboarding/roi', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{
+            x: Math.round(roiX * 1000) / 1000,
+            y: Math.round(roiY * 1000) / 1000,
+            width: Math.round(roiW * 1000) / 1000,
+            height: Math.round(roiH * 1000) / 1000
+        }})
+    }})
+    .then(r => r.json())
+    .then(data => {{
+        if (data.ok) {{
+            status.innerHTML = '<div class="status status-ok">Crop area saved to local config!</div>';
+        }} else {{
+            status.innerHTML = '<div class="status status-error">' +
+                (data.error || 'Failed to save') + '</div>';
+        }}
+    }})
+    .catch(e => {{
+        status.innerHTML = '<div class="status status-error">Error: ' + e + '</div>';
+    }});
+}}
+
+/* ── Step 5: Summary & Services ────────────────────────────────────── */
+function loadSummary() {{
+    fetch('/api/onboarding/status')
+        .then(r => r.json())
+        .then(data => {{
+            let html = '<table style="width:100%;border-collapse:collapse;">';
+            html += '<tr><th style="text-align:left;padding:6px;">Setting</th>' +
+                    '<th style="text-align:left;padding:6px;">Value</th></tr>';
+            const rows = [
+                ['Camera type', data.camera_type || '--'],
+                ['Resolution', data.resolution || '--'],
+                ['Rotation', (data.rotation || 0) + '&deg;'],
+                ['ROI (crop area)', data.roi || '--'],
+                ['Model', data.model_status || '--'],
+                ['Local config', data.has_local_config ? 'Created' : 'Not yet created'],
+            ];
+            rows.forEach(([k, v]) => {{
+                html += '<tr><td style="padding:6px;border-bottom:1px solid #eee;">' + k + '</td>' +
+                        '<td style="padding:6px;border-bottom:1px solid #eee;">' + v + '</td></tr>';
+            }});
+            html += '</table>';
+            document.getElementById('summary-content').innerHTML = html;
+
+            // Services
+            let svcHtml = '';
+            (data.services || []).forEach(s => {{
+                const dotCls = s.active === 'active' ? 'dot-running' :
+                               s.active === 'inactive' ? 'dot-stopped' : 'dot-unknown';
+                const statusLabel = s.active === 'active' ? 'running' :
+                                    s.active === 'inactive' ? 'stopped' : s.active || 'unknown';
+                svcHtml += '<div class="service-row">' +
+                    '<span class="service-name">' + s.name + '</span>' +
+                    '<span class="service-status"><span class="dot ' + dotCls + '"></span>' +
+                    statusLabel + '</span>' +
+                    '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
+                    'onclick="serviceAction(\\'' + s.unit + '\\', \\'restart\\')">' +
+                    (s.active === 'active' ? 'Restart' : 'Start') + '</button>' +
+                    '</div>';
+            }});
+            if (!svcHtml) svcHtml = '<div class="status status-info">No systemd services installed. Run setup.sh to install them.</div>';
+            document.getElementById('services-content').innerHTML = svcHtml;
+        }})
+        .catch(e => {{
+            document.getElementById('summary-content').innerHTML =
+                '<div class="status status-error">Error loading status: ' + e + '</div>';
+        }});
+}}
+
+function serviceAction(unit, action) {{
+    fetch('/api/onboarding/services', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{unit: unit, action: action}})
+    }})
+    .then(r => r.json())
+    .then(data => {{
+        if (data.ok) loadSummary();
+        else alert('Service error: ' + (data.error || 'unknown'));
+    }})
+    .catch(e => alert('Network error: ' + e));
+}}
+
+function finishOnboarding() {{
+    fetch('/api/onboarding/complete', {{method: 'POST'}})
+        .then(r => r.json())
+        .then(data => {{
+            if (data.ok) {{
+                alert('Setup complete! Your bird feeder is ready.');
+                window.location.href = '/';
+            }}
+        }})
+        .catch(e => alert('Error: ' + e));
+}}
+
+// If we already have a test photo, enable the Next button
+fetch('/api/onboarding/status')
+    .then(r => r.json())
+    .then(data => {{
+        if (data.has_test_photo) {{
+            testPhotoUrl = '/api/onboarding/test-photo?t=' + Date.now();
+            document.getElementById('capture-preview').innerHTML =
+                '<div class="photo-frame"><img src="' + testPhotoUrl + '"></div>';
+            document.getElementById('btn-next-0').disabled = false;
+            document.getElementById('btn-capture').textContent = 'Retake Photo';
+        }}
+    }});
+</script>
+</body>
+</html>"""
+
+
 class BirdFeederHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the bird feeder web interface."""
 
@@ -1257,12 +2012,20 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             self._serve_html(build_stats_html())
         elif path == "/calibration":
             self._serve_html(build_calibration_html())
+        elif path == "/onboarding":
+            self._serve_html(build_onboarding_html())
         elif path == "/api/health":
             self._serve_json(get_health_data())
         elif path == "/api/stats":
             self._serve_stats_json()
         elif path == "/api/calibration":
             self._serve_calibration_json()
+        elif path == "/api/onboarding/blur":
+            self._handle_onboarding_blur()
+        elif path == "/api/onboarding/status":
+            self._handle_onboarding_status()
+        elif path.startswith("/api/onboarding/test-photo"):
+            self._serve_onboarding_test_photo()
         elif path.startswith("/photos/"):
             self._serve_photo(path[len("/photos/") :])
         else:
@@ -1272,6 +2035,16 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
         path = unquote(self.path).rstrip("/") or "/"
         if path == "/api/feedback":
             self._handle_feedback()
+        elif path == "/api/onboarding/capture":
+            self._handle_onboarding_capture()
+        elif path == "/api/onboarding/rotate":
+            self._handle_onboarding_rotate()
+        elif path == "/api/onboarding/roi":
+            self._handle_onboarding_roi()
+        elif path == "/api/onboarding/services":
+            self._handle_onboarding_services()
+        elif path == "/api/onboarding/complete":
+            self._handle_onboarding_complete()
         else:
             self._send_error(404, "Not found")
 
@@ -1592,6 +2365,169 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._serve_json({"error": f"Database error: {e}"})
 
+    # ── Onboarding API handlers ──────────────────────────────────────────
+
+    def _handle_onboarding_capture(self):
+        """POST /api/onboarding/capture — take a test photo."""
+        try:
+            path = _capture_test_photo(CONFIG)
+            if path:
+                self._serve_json({"ok": True, "photo_url": "/api/onboarding/test-photo"})
+            else:
+                self._serve_json({"ok": False, "error": "Camera capture failed. Check camera connection."})
+        except Exception as e:
+            self._serve_json({"ok": False, "error": str(e)})
+
+    def _handle_onboarding_rotate(self):
+        """POST /api/onboarding/rotate — set rotation, retake photo."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            rotation = int(body["rotation"])
+            if rotation not in (0, 90, 180, 270):
+                self._serve_json({"ok": False, "error": "Invalid rotation"})
+                return
+
+            # Save rotation to local config
+            save_local_config({"camera": {"rotation": rotation}})
+            # Update in-memory config
+            CONFIG["camera"]["rotation"] = rotation
+
+            # Retake photo with new rotation
+            path = _capture_test_photo(CONFIG)
+            if path:
+                self._serve_json({"ok": True, "photo_url": "/api/onboarding/test-photo"})
+            else:
+                self._serve_json({"ok": False, "error": "Photo retake failed"})
+        except Exception as e:
+            self._serve_json({"ok": False, "error": str(e)})
+
+    def _handle_onboarding_blur(self):
+        """GET /api/onboarding/blur — check blurriness of test photo."""
+        test_photo = PROJECT_ROOT / "data" / "onboarding_test.jpg"
+        if not test_photo.exists():
+            self._serve_json({"error": "No test photo. Take a photo first."})
+            return
+        try:
+            from privacy import check_blurriness
+
+            result = check_blurriness(test_photo)
+            self._serve_json(result)
+        except Exception as e:
+            self._serve_json({"error": str(e)})
+
+    def _handle_onboarding_roi(self):
+        """POST /api/onboarding/roi — save ROI coordinates to local config."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            roi = {
+                "x": round(float(body["x"]), 3),
+                "y": round(float(body["y"]), 3),
+                "width": round(float(body["width"]), 3),
+                "height": round(float(body["height"]), 3),
+            }
+            # Validate ranges
+            for key, val in roi.items():
+                if not 0 <= val <= 1:
+                    self._serve_json({"ok": False, "error": f"Invalid {key}: {val}"})
+                    return
+
+            save_local_config({"motion": {"roi": roi}})
+            # Update in-memory config
+            CONFIG.setdefault("motion", {}).setdefault("roi", {}).update(roi)
+            self._serve_json({"ok": True, "roi": roi})
+        except Exception as e:
+            self._serve_json({"ok": False, "error": str(e)})
+
+    def _handle_onboarding_status(self):
+        """GET /api/onboarding/status — current config and service status."""
+        cam_cfg = CONFIG.get("camera", {})
+        roi = CONFIG.get("motion", {}).get("roi", {})
+        model_path = PROJECT_ROOT / CONFIG.get("classifier", {}).get("model_path", "models/bird_model.tflite")
+
+        # Check systemd services
+        services = []
+        service_defs = [
+            ("Motion Detector", "bird-capture.service"),
+            ("Classifier", "bird-classify.service"),
+            ("Web Server", "bird-webserver.service"),
+        ]
+        for name, unit in service_defs:
+            try:
+                result = subprocess.run(
+                    ["systemctl", "is-active", unit],
+                    capture_output=True, text=True, timeout=5,
+                )
+                active = result.stdout.strip()
+            except Exception:
+                active = "not-installed"
+            services.append({"name": name, "unit": unit, "active": active})
+
+        test_photo = PROJECT_ROOT / "data" / "onboarding_test.jpg"
+
+        self._serve_json({
+            "camera_type": cam_cfg.get("type", "picamera"),
+            "resolution": f"{cam_cfg.get('resolution_width', '?')}x{cam_cfg.get('resolution_height', '?')}",
+            "rotation": cam_cfg.get("rotation", 0),
+            "roi": f"x={roi.get('x', '?')} y={roi.get('y', '?')} w={roi.get('width', '?')} h={roi.get('height', '?')}",
+            "model_status": "Installed" if model_path.exists() else "Not found",
+            "has_local_config": LOCAL_CONFIG_PATH.exists(),
+            "has_test_photo": test_photo.exists(),
+            "services": services,
+        })
+
+    def _serve_onboarding_test_photo(self):
+        """GET /api/onboarding/test-photo — serve the test photo."""
+        test_photo = PROJECT_ROOT / "data" / "onboarding_test.jpg"
+        if not test_photo.exists():
+            self._send_error(404, "No test photo")
+            return
+        try:
+            data = test_photo.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self._send_error(500, "Error reading test photo")
+
+    def _handle_onboarding_services(self):
+        """POST /api/onboarding/services — start/stop/restart a service."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            unit = body["unit"]
+            action = body["action"]
+
+            # Whitelist allowed units and actions
+            allowed_units = {"bird-capture.service", "bird-classify.service", "bird-webserver.service"}
+            allowed_actions = {"start", "stop", "restart"}
+            if unit not in allowed_units or action not in allowed_actions:
+                self._serve_json({"ok": False, "error": "Invalid unit or action"})
+                return
+
+            result = subprocess.run(
+                ["sudo", "systemctl", action, unit],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                self._serve_json({"ok": True})
+            else:
+                self._serve_json({"ok": False, "error": result.stderr.strip() or "Command failed"})
+        except Exception as e:
+            self._serve_json({"ok": False, "error": str(e)})
+
+    def _handle_onboarding_complete(self):
+        """POST /api/onboarding/complete — mark onboarding as done."""
+        try:
+            save_local_config({"onboarding_completed": True})
+            self._serve_json({"ok": True})
+        except Exception as e:
+            self._serve_json({"ok": False, "error": str(e)})
+
     def _serve_photo(self, rel_path: str):
         photo_path = CLASSIFIED_DIR / rel_path
 
@@ -1677,6 +2613,7 @@ def main():
     print(f"  Health:       http://{host}:{port}/health")
     print(f"  Stats API:    http://{host}:{port}/api/stats")
     print(f"  Calib API:    http://{host}:{port}/api/calibration")
+    print(f"  Setup Wizard: http://{host}:{port}/onboarding")
     print("Press Ctrl+C to stop.")
 
     try:
