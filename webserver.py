@@ -348,12 +348,12 @@ def build_gallery_html() -> str:
     if not _is_onboarding_complete():
         onboarding_banner = (
             '<div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:8px;'
-            'padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;'
+            "padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;"
             'justify-content:space-between;">'
-            '<span>Setup not completed yet.</span>'
+            "<span>Setup not completed yet.</span>"
             '<a href="/onboarding" style="background:#2e7d32;color:white;padding:0.5rem 1.2rem;'
             'border-radius:6px;text-decoration:none;font-weight:600;">Start Setup Wizard</a>'
-            '</div>'
+            "</div>"
         )
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1506,13 +1506,13 @@ def build_onboarding_html() -> str:
             <div id="orientation-preview"></div>
             <p style="margin-top: 0.8rem;">Rotation:</p>
             <div class="rotation-group">
-                <button class="btn btn-secondary{' selected' if rotation == 0 else ''}"
+                <button class="btn btn-secondary{" selected" if rotation == 0 else ""}"
                         onclick="setRotation(0, this)">0&deg;</button>
-                <button class="btn btn-secondary{' selected' if rotation == 90 else ''}"
+                <button class="btn btn-secondary{" selected" if rotation == 90 else ""}"
                         onclick="setRotation(90, this)">90&deg;</button>
-                <button class="btn btn-secondary{' selected' if rotation == 180 else ''}"
+                <button class="btn btn-secondary{" selected" if rotation == 180 else ""}"
                         onclick="setRotation(180, this)">180&deg;</button>
-                <button class="btn btn-secondary{' selected' if rotation == 270 else ''}"
+                <button class="btn btn-secondary{" selected" if rotation == 270 else ""}"
                         onclick="setRotation(270, this)">270&deg;</button>
             </div>
             <div id="rotation-status" style="margin-top: 0.5rem;"></div>
@@ -2374,7 +2374,9 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             if path:
                 self._serve_json({"ok": True, "photo_url": "/api/onboarding/test-photo"})
             else:
-                self._serve_json({"ok": False, "error": "Camera capture failed. Check camera connection."})
+                self._serve_json(
+                    {"ok": False, "error": "Camera capture failed. Check camera connection."}
+                )
         except Exception as e:
             self._serve_json({"ok": False, "error": str(e)})
 
@@ -2444,7 +2446,9 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
         """GET /api/onboarding/status — current config and service status."""
         cam_cfg = CONFIG.get("camera", {})
         roi = CONFIG.get("motion", {}).get("roi", {})
-        model_path = PROJECT_ROOT / CONFIG.get("classifier", {}).get("model_path", "models/bird_model.tflite")
+        model_path = PROJECT_ROOT / CONFIG.get("classifier", {}).get(
+            "model_path", "models/bird_model.tflite"
+        )
 
         # Check systemd services
         services = []
@@ -2457,7 +2461,9 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             try:
                 result = subprocess.run(
                     ["systemctl", "is-active", unit],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 active = result.stdout.strip()
             except Exception:
@@ -2466,16 +2472,18 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
 
         test_photo = PROJECT_ROOT / "data" / "onboarding_test.jpg"
 
-        self._serve_json({
-            "camera_type": cam_cfg.get("type", "picamera"),
-            "resolution": f"{cam_cfg.get('resolution_width', '?')}x{cam_cfg.get('resolution_height', '?')}",
-            "rotation": cam_cfg.get("rotation", 0),
-            "roi": f"x={roi.get('x', '?')} y={roi.get('y', '?')} w={roi.get('width', '?')} h={roi.get('height', '?')}",
-            "model_status": "Installed" if model_path.exists() else "Not found",
-            "has_local_config": LOCAL_CONFIG_PATH.exists(),
-            "has_test_photo": test_photo.exists(),
-            "services": services,
-        })
+        self._serve_json(
+            {
+                "camera_type": cam_cfg.get("type", "picamera"),
+                "resolution": f"{cam_cfg.get('resolution_width', '?')}x{cam_cfg.get('resolution_height', '?')}",
+                "rotation": cam_cfg.get("rotation", 0),
+                "roi": f"x={roi.get('x', '?')} y={roi.get('y', '?')} w={roi.get('width', '?')} h={roi.get('height', '?')}",
+                "model_status": "Installed" if model_path.exists() else "Not found",
+                "has_local_config": LOCAL_CONFIG_PATH.exists(),
+                "has_test_photo": test_photo.exists(),
+                "services": services,
+            }
+        )
 
     def _serve_onboarding_test_photo(self):
         """GET /api/onboarding/test-photo — serve the test photo."""
@@ -2503,7 +2511,11 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             action = body["action"]
 
             # Whitelist allowed units and actions
-            allowed_units = {"bird-capture.service", "bird-classify.service", "bird-webserver.service"}
+            allowed_units = {
+                "bird-capture.service",
+                "bird-classify.service",
+                "bird-webserver.service",
+            }
             allowed_actions = {"start", "stop", "restart"}
             if unit not in allowed_units or action not in allowed_actions:
                 self._serve_json({"ok": False, "error": "Invalid unit or action"})
@@ -2511,7 +2523,9 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
 
             result = subprocess.run(
                 ["sudo", "systemctl", action, unit],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             if result.returncode == 0:
                 self._serve_json({"ok": True})
