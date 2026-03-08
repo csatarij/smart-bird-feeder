@@ -489,6 +489,7 @@ STATS_HTML_TEMPLATE = """<!DOCTYPE html>
         <a href="/stats" class="active">Statistics</a>
         <a href="/calibration">Calibration</a>
         <a href="/health">Health</a>
+        <a href="/onboarding">Setup</a>
     </div>
 </nav>
 <div class="container">
@@ -730,6 +731,7 @@ CALIBRATION_HTML_TEMPLATE = """<!DOCTYPE html>
         <a href="/stats">Statistics</a>
         <a href="/calibration" class="active">Calibration</a>
         <a href="/health">Health</a>
+        <a href="/onboarding">Setup</a>
     </div>
 </nav>
 <div class="container">
@@ -1069,6 +1071,30 @@ HEALTH_HTML_TEMPLATE = """<!DOCTYPE html>
     .error { color: #f44336; }
     .ok { color: #4caf50; }
     .warn { color: #ff9800; }
+
+    /* Service control panel */
+    .svc-panel { background: #fff; border: 1px solid #ddd; border-radius: 8px;
+                 padding: 0.8rem 1rem; margin-bottom: 1.2rem;
+                 box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .svc-panel h3 { margin: 0 0 0.5rem 0; font-size: 0.95rem; color: #555; }
+    .svc-panel-grid { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+    .svc-chip { display: inline-flex; align-items: center; gap: 0.4rem;
+                background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 20px;
+                padding: 0.3rem 0.5rem 0.3rem 0.7rem; font-size: 0.85rem; }
+    .svc-chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0; }
+    .dot-running { background: #4caf50; }
+    .dot-stopped { background: #f44336; }
+    .dot-unknown { background: #ff9800; }
+    .svc-chip-name { font-weight: 600; white-space: nowrap; }
+    .svc-chip-btns { display: inline-flex; gap: 2px; margin-left: 0.2rem; }
+    .svc-chip-btns button { padding: 2px 8px; font-size: 0.75rem; border: 1px solid #ccc;
+                             background: #fff; border-radius: 4px; cursor: pointer;
+                             transition: background 0.15s; }
+    .svc-chip-btns button:hover { background: #e8e8e8; }
+    .svc-chip-btns button.svc-stop { color: #c62828; border-color: #ef9a9a; }
+    .svc-chip-btns button.svc-stop:hover { background: #ffebee; }
+    .svc-chip-btns button.svc-start { color: #2e7d32; border-color: #a5d6a7; }
+    .svc-chip-btns button.svc-start:hover { background: #e8f5e9; }
 </style>
 </head>
 <body>
@@ -1079,9 +1105,16 @@ HEALTH_HTML_TEMPLATE = """<!DOCTYPE html>
         <a href="/stats">Statistics</a>
         <a href="/calibration">Calibration</a>
         <a href="/health" class="active">Health</a>
+        <a href="/onboarding">Setup</a>
     </div>
 </nav>
 <div class="container">
+    <div class="svc-panel">
+        <h3>Service Control</h3>
+        <div class="svc-panel-grid" id="svc-panel-grid">
+            <span style="color:#999;font-style:italic;">Loading services...</span>
+        </div>
+    </div>
     <div id="dashboard">Loading...</div>
     <div class="refresh-info">Auto-refreshes every 30 seconds</div>
 </div>
@@ -1251,6 +1284,67 @@ function refresh() {
 
 refresh();
 setInterval(refresh, 30000);
+
+/* ── Service control panel ────────────────────────────────────────── */
+function serviceAction(unit, action) {
+    fetch('/api/onboarding/services', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({unit: unit, action: action})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            refreshServicePanel();
+            refresh();
+        } else {
+            alert('Service error: ' + (data.error || 'unknown'));
+        }
+    })
+    .catch(e => alert('Network error: ' + e));
+}
+
+function refreshServicePanel() {
+    fetch('/api/onboarding/status')
+        .then(r => r.json())
+        .then(data => {
+            const grid = document.getElementById('svc-panel-grid');
+            if (!data.services || data.services.length === 0) {
+                grid.innerHTML = '<span style="color:#999;font-size:0.85rem;">No services installed.</span>';
+                return;
+            }
+            let html = '';
+            data.services.forEach(s => {
+                const isActive = s.active === 'active';
+                const dotCls = isActive ? 'dot-running' :
+                               s.active === 'inactive' ? 'dot-stopped' : 'dot-unknown';
+                const label = isActive ? 'running' :
+                              s.active === 'inactive' ? 'stopped' : (s.active || '?');
+                html += '<div class="svc-chip">' +
+                    '<span class="dot ' + dotCls + '"></span>' +
+                    '<span class="svc-chip-name">' + s.name + '</span> ' +
+                    '<span style="color:#888;font-size:0.8rem;">' + label + '</span>' +
+                    '<span class="svc-chip-btns">';
+                if (isActive) {
+                    html += '<button class="svc-stop" onclick="serviceAction(\'' + s.unit +
+                            '\', \'stop\')">Stop</button>';
+                    html += '<button onclick="serviceAction(\'' + s.unit +
+                            '\', \'restart\')">Restart</button>';
+                } else {
+                    html += '<button class="svc-start" onclick="serviceAction(\'' + s.unit +
+                            '\', \'start\')">Start</button>';
+                }
+                html += '</span></div>';
+            });
+            grid.innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('svc-panel-grid').innerHTML =
+                '<span style="color:#c62828;font-size:0.85rem;">Could not load services.</span>';
+        });
+}
+
+refreshServicePanel();
 </script>
 </body>
 </html>"""
@@ -1266,6 +1360,20 @@ def _is_onboarding_complete() -> bool:
         with open(LOCAL_CONFIG_PATH) as f:
             local = yaml.safe_load(f) or {}
         return local.get("onboarding_completed", False)
+    except Exception:
+        return False
+
+
+def _is_service_active(service_name: str) -> bool:
+    """Check whether a systemd service is currently active (running)."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", f"{service_name}.service"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() == "active"
     except Exception:
         return False
 
@@ -1291,12 +1399,23 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
     output_path = PROJECT_ROOT / "data" / "onboarding_test.jpg"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    if LOGGER:
+        LOGGER.info(
+            "Test photo capture starting: cam_type=%s, resolution=%dx%d, rotation=%d",
+            cam_type,
+            w,
+            h,
+            rotation,
+        )
+
     frame = None
     try:
         if cam_type == "picamera":
             try:
                 from picamera2 import Picamera2
 
+                if LOGGER:
+                    LOGGER.info("Attempting Picamera2 initialization...")
                 cam = Picamera2()
                 try:
                     cam_config = cam.create_still_configuration(
@@ -1317,19 +1436,31 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
                             controls["Brightness"] = float(tuning["brightness"])
                         if controls:
                             cam.set_controls(controls)
+                            if LOGGER:
+                                LOGGER.info("Applied Picamera2 tuning controls: %s", controls)
                             # Extra settle time for controls to take effect
                             time.sleep(1)
 
                     time.sleep(cam_cfg.get("warmup_seconds", 3))
                     frame = cam.capture_array()
+                    if LOGGER:
+                        LOGGER.info(
+                            "Picamera2 capture succeeded: frame shape=%s, dtype=%s",
+                            frame.shape,
+                            frame.dtype,
+                        )
                     cam.stop()
                 finally:
                     cam.close()
             except ImportError:
+                if LOGGER:
+                    LOGGER.warning("picamera2 not available, trying legacy picamera")
                 try:
                     import picamera
                     import picamera.array
 
+                    if LOGGER:
+                        LOGGER.info("Attempting legacy PiCamera initialization...")
                     cam = picamera.PiCamera()
                     cam.resolution = (w, h)
                     cam.rotation = rotation
@@ -1340,25 +1471,57 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
                         cam.capture(output, "rgb")
                         frame = output.array
                     cam.close()
+                    if LOGGER:
+                        LOGGER.info("Legacy PiCamera capture succeeded")
                 except ImportError:
+                    if LOGGER:
+                        LOGGER.warning("No picamera library found, falling back to USB webcam")
                     cam_type = "usb"
+                except Exception as e:
+                    if LOGGER:
+                        LOGGER.error("Legacy PiCamera capture failed: %s", e, exc_info=True)
+            except Exception as e:
+                if LOGGER:
+                    LOGGER.error("Picamera2 capture failed: %s", e, exc_info=True)
 
         if cam_type == "usb" or (cam_type == "picamera" and frame is None):
+            if LOGGER:
+                LOGGER.info("Attempting USB webcam capture (device 0)...")
             cap = cv2.VideoCapture(0)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            import time
+            if not cap.isOpened():
+                if LOGGER:
+                    LOGGER.error(
+                        "USB webcam failed to open. The camera device may be "
+                        "busy (e.g. held by the motion detector service) or "
+                        "not connected."
+                    )
+            else:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+                import time
 
-            time.sleep(cam_cfg.get("warmup_seconds", 3))
-            ret, bgr = cap.read()
-            cap.release()
-            if ret:
-                frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                time.sleep(cam_cfg.get("warmup_seconds", 3))
+                ret, bgr = cap.read()
+                cap.release()
+                if ret:
+                    frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                    if LOGGER:
+                        LOGGER.info("USB webcam capture succeeded")
+                else:
+                    if LOGGER:
+                        LOGGER.error(
+                            "USB webcam read() returned no frame. The camera "
+                            "may be busy or not providing data."
+                        )
 
-    except Exception:
+    except Exception as e:
+        if LOGGER:
+            LOGGER.error("Test photo capture failed with unexpected error: %s", e, exc_info=True)
         return None
 
     if frame is None:
+        if LOGGER:
+            LOGGER.error("Test photo capture produced no frame. All camera backends failed.")
         return None
 
     # Apply rotation
@@ -1485,6 +1648,27 @@ def build_onboarding_html() -> str:
     .dot-unknown {{ background: #ff9800; }}
 
     .loading {{ color: #999; font-style: italic; }}
+
+    /* Persistent service control panel */
+    .svc-panel {{ background: #fff; border: 1px solid #ddd; border-radius: 8px;
+                  padding: 0.8rem 1rem; margin-bottom: 1.2rem;
+                  box-shadow: 0 1px 4px rgba(0,0,0,0.06); }}
+    .svc-panel h3 {{ margin: 0 0 0.5rem 0; font-size: 0.95rem; color: #555; }}
+    .svc-panel-grid {{ display: flex; flex-wrap: wrap; gap: 0.6rem; }}
+    .svc-chip {{ display: inline-flex; align-items: center; gap: 0.4rem;
+                 background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 20px;
+                 padding: 0.3rem 0.5rem 0.3rem 0.7rem; font-size: 0.85rem; }}
+    .svc-chip .dot {{ margin: 0; }}
+    .svc-chip-name {{ font-weight: 600; white-space: nowrap; }}
+    .svc-chip-btns {{ display: inline-flex; gap: 2px; margin-left: 0.2rem; }}
+    .svc-chip-btns button {{ padding: 2px 8px; font-size: 0.75rem; border: 1px solid #ccc;
+                              background: #fff; border-radius: 4px; cursor: pointer;
+                              transition: background 0.15s; }}
+    .svc-chip-btns button:hover {{ background: #e8e8e8; }}
+    .svc-chip-btns button.svc-stop {{ color: #c62828; border-color: #ef9a9a; }}
+    .svc-chip-btns button.svc-stop:hover {{ background: #ffebee; }}
+    .svc-chip-btns button.svc-start {{ color: #2e7d32; border-color: #a5d6a7; }}
+    .svc-chip-btns button.svc-start:hover {{ background: #e8f5e9; }}
 </style>
 </head>
 <body>
@@ -1499,6 +1683,14 @@ def build_onboarding_html() -> str:
     </div>
 </nav>
 <div class="container">
+    <!-- Persistent service control panel — always visible -->
+    <div class="svc-panel">
+        <h3>Services</h3>
+        <div class="svc-panel-grid" id="svc-panel-grid">
+            <span class="loading">Loading services...</span>
+        </div>
+    </div>
+
     <div class="stepper">
         <div class="step-indicator active" onclick="goStep(0)">1. Camera</div>
         <div class="step-indicator" onclick="goStep(1)">2. Orientation</div>
@@ -2057,14 +2249,24 @@ function loadSummary() {{
                 svcHtml += '<div class="service-row">' +
                     '<span class="service-name">' + s.name + '</span>' +
                     '<span class="service-status"><span class="dot ' + dotCls + '"></span>' +
-                    statusLabel + '</span>' +
-                    '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
-                    'onclick="serviceAction(\\'' + s.unit + '\\', \\'restart\\')">' +
-                    (s.active === 'active' ? 'Restart' : 'Start') + '</button>' +
-                    '</div>';
+                    statusLabel + '</span>';
+                if (s.active === 'active') {{
+                    svcHtml +=
+                        '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
+                        'onclick="serviceAction(\\'' + s.unit + '\\', \\'stop\\')">Stop</button>' +
+                        '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;margin-left:4px;" ' +
+                        'onclick="serviceAction(\\'' + s.unit + '\\', \\'restart\\')">Restart</button>';
+                }} else {{
+                    svcHtml +=
+                        '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
+                        'onclick="serviceAction(\\'' + s.unit + '\\', \\'start\\')">Start</button>';
+                }}
+                svcHtml += '</div>';
             }});
             if (!svcHtml) svcHtml = '<div class="status status-info">No systemd services installed. Run setup.sh to install them.</div>';
             document.getElementById('services-content').innerHTML = svcHtml;
+            // Keep persistent panel in sync
+            refreshServicePanel();
         }})
         .catch(e => {{
             document.getElementById('summary-content').innerHTML =
@@ -2080,11 +2282,59 @@ function serviceAction(unit, action) {{
     }})
     .then(r => r.json())
     .then(data => {{
-        if (data.ok) loadSummary();
-        else alert('Service error: ' + (data.error || 'unknown'));
+        if (data.ok) {{
+            loadSummary();
+            refreshServicePanel();
+        }} else {{
+            alert('Service error: ' + (data.error || 'unknown'));
+        }}
     }})
     .catch(e => alert('Network error: ' + e));
 }}
+
+/* ── Persistent service control panel ─────────────────────────────── */
+function refreshServicePanel() {{
+    fetch('/api/onboarding/status')
+        .then(r => r.json())
+        .then(data => {{
+            const grid = document.getElementById('svc-panel-grid');
+            if (!data.services || data.services.length === 0) {{
+                grid.innerHTML = '<span style="color:#999;font-size:0.85rem;">No services installed.</span>';
+                return;
+            }}
+            let html = '';
+            data.services.forEach(s => {{
+                const isActive = s.active === 'active';
+                const dotCls = isActive ? 'dot-running' :
+                               s.active === 'inactive' ? 'dot-stopped' : 'dot-unknown';
+                const label = isActive ? 'running' :
+                              s.active === 'inactive' ? 'stopped' : (s.active || '?');
+                html += '<div class="svc-chip">' +
+                    '<span class="dot ' + dotCls + '"></span>' +
+                    '<span class="svc-chip-name">' + s.name + '</span> ' +
+                    '<span style="color:#888;font-size:0.8rem;">' + label + '</span>' +
+                    '<span class="svc-chip-btns">';
+                if (isActive) {{
+                    html += '<button class="svc-stop" onclick="serviceAction(\\'' + s.unit +
+                            '\\', \\'stop\\')">Stop</button>';
+                    html += '<button onclick="serviceAction(\\'' + s.unit +
+                            '\\', \\'restart\\')">Restart</button>';
+                }} else {{
+                    html += '<button class="svc-start" onclick="serviceAction(\\'' + s.unit +
+                            '\\', \\'start\\')">Start</button>';
+                }}
+                html += '</span></div>';
+            }});
+            grid.innerHTML = html;
+        }})
+        .catch(() => {{
+            document.getElementById('svc-panel-grid').innerHTML =
+                '<span style="color:#c62828;font-size:0.85rem;">Could not load services.</span>';
+        }});
+}}
+
+// Load service panel on page load
+refreshServicePanel();
 
 function finishOnboarding() {{
     fetch('/api/onboarding/complete', {{method: 'POST'}})
@@ -2489,14 +2739,35 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
     def _handle_onboarding_capture(self):
         """POST /api/onboarding/capture — take a test photo."""
         try:
+            # Check if the motion detector service is running (it holds the
+            # camera exclusively on most Pi setups).
+            motion_active = _is_service_active("bird-capture")
+            if motion_active and LOGGER:
+                LOGGER.warning(
+                    "Motion detector service (bird-capture) is running. "
+                    "It may hold the camera device exclusively, preventing "
+                    "the test capture."
+                )
+
             path = _capture_test_photo(CONFIG)
             if path:
                 self._serve_json({"ok": True, "photo_url": "/api/onboarding/test-photo"})
             else:
-                self._serve_json(
-                    {"ok": False, "error": "Camera capture failed. Check camera connection."}
-                )
+                hint = ""
+                if motion_active:
+                    hint = (
+                        " The motion detector service (bird-capture) is "
+                        "currently running and may be holding the camera. "
+                        "Try stopping it first from the Services step or run: "
+                        "sudo systemctl stop bird-capture"
+                    )
+                error_msg = "Camera capture failed. Check camera connection." + hint
+                if LOGGER:
+                    LOGGER.error("Onboarding capture failed. motion_active=%s", motion_active)
+                self._serve_json({"ok": False, "error": error_msg})
         except Exception as e:
+            if LOGGER:
+                LOGGER.error("Onboarding capture handler error: %s", e, exc_info=True)
             self._serve_json({"ok": False, "error": str(e)})
 
     def _handle_onboarding_rotate(self):
@@ -2550,7 +2821,13 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
 
             path = _capture_test_photo(CONFIG, tuning=tuning or None)
             if not path:
-                self._serve_json({"ok": False, "error": "Camera capture failed."})
+                hint = ""
+                if _is_service_active("bird-capture"):
+                    hint = (
+                        " The motion detector service is running and may be "
+                        "holding the camera. Try stopping it first."
+                    )
+                self._serve_json({"ok": False, "error": "Camera capture failed." + hint})
                 return
 
             from privacy import check_blurriness

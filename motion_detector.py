@@ -13,6 +13,9 @@ Usage:
 """
 
 import argparse
+import atexit
+import fcntl
+import os
 import shutil
 import signal
 import sys
@@ -28,6 +31,45 @@ from utils import PROJECT_ROOT, ensure_directories, load_config, setup_logging
 
 # Minimum free disk space in MB before we stop saving snapshots
 MIN_FREE_DISK_MB = 200
+
+# PID / lock file to prevent multiple instances from running simultaneously
+_LOCK_FILE_PATH = PROJECT_ROOT / "data" / "motion_detector.lock"
+_lock_file = None
+
+
+def _acquire_lock():
+    """Acquire an exclusive lock to ensure only one instance runs at a time.
+
+    Uses flock() so the lock is automatically released if the process dies.
+    """
+    global _lock_file
+    _LOCK_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _lock_file = open(_LOCK_FILE_PATH, "w")
+    try:
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(
+            "ERROR: Another motion_detector instance is already running "
+            f"(lock file: {_LOCK_FILE_PATH}). Exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
+    _lock_file.write(str(os.getpid()))
+    _lock_file.flush()
+    atexit.register(_release_lock)
+
+
+def _release_lock():
+    """Release the lock file on normal exit."""
+    global _lock_file
+    if _lock_file:
+        try:
+            fcntl.flock(_lock_file, fcntl.LOCK_UN)
+            _lock_file.close()
+            _LOCK_FILE_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+        _lock_file = None
 
 
 class MotionDetector:
@@ -246,6 +288,9 @@ def main():
     parser = argparse.ArgumentParser(description="Bird feeder motion detector")
     parser.add_argument("--config", type=str, default=None, help="Path to settings.yaml")
     args = parser.parse_args()
+
+    _acquire_lock()
+
     config = load_config(args.config)
     detector = MotionDetector(config)
     detector.run()

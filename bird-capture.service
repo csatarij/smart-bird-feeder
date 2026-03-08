@@ -13,6 +13,11 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
+# Ensure all child processes are killed on stop/restart
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
 # Resource limits suitable for Pi 1B
 MemoryMax=200M
 CPUQuota=60%
