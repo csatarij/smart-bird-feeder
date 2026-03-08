@@ -30,11 +30,13 @@ echo ""
 echo "[1/6] Installing system packages..."
 PACKAGES="python3-pip python3-venv python3-opencv python3-numpy python3-pil sqlite3 git"
 
-# Pick the right BLAS package
-if apt-cache show libatlas-base-dev >/dev/null 2>&1; then
+# Pick the right BLAS package — apt-cache show can succeed even when
+# there is no installation candidate, so check apt-cache policy instead.
+if apt-cache policy libatlas-base-dev 2>/dev/null | grep -q 'Candidate:' \
+   && ! apt-cache policy libatlas-base-dev 2>/dev/null | grep -q 'Candidate: (none)'; then
     PACKAGES="$PACKAGES libatlas-base-dev"
 else
-    echo "  Note: libatlas-base-dev unavailable (Debian Trixie+), using libopenblas-dev"
+    echo "  Note: libatlas-base-dev unavailable, using libopenblas-dev"
     PACKAGES="$PACKAGES libopenblas-dev"
 fi
 
