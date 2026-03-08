@@ -125,7 +125,7 @@ def check_blurriness(image_path: str | Path) -> dict:
     else:
         assessment = "Sharp image"
 
-    return {"score": round(score, 1), "is_blurry": score < 100, "assessment": assessment}
+    return {"score": round(float(score), 1), "is_blurry": bool(score < 100), "assessment": assessment}
 
 
 def save_private_image(
