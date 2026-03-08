@@ -5,9 +5,9 @@ Wants=bird-classify.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/smart-bird-feeder
-ExecStart=/home/pi/smart-bird-feeder/venv/bin/python3 motion_detector.py
+User=csatarij
+WorkingDirectory=/home/csatarij/smart-bird-feeder
+ExecStart=/home/csatarij/smart-bird-feeder/venv/bin/python3 motion_detector.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
