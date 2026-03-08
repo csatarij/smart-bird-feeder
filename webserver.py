@@ -2556,11 +2556,13 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             from privacy import check_blurriness
 
             blur = check_blurriness(path)
-            self._serve_json({
-                "ok": True,
-                "photo_url": "/api/onboarding/test-photo",
-                **blur,
-            })
+            self._serve_json(
+                {
+                    "ok": True,
+                    "photo_url": "/api/onboarding/test-photo",
+                    **blur,
+                }
+            )
         except Exception as e:
             self._serve_json({"ok": False, "error": str(e)})
 
