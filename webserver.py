@@ -330,7 +330,9 @@ def build_gallery_html() -> str:
     captures_list = []
     captures_dir = DATA_DIR / "captures"
     if captures_dir.exists():
-        captures_photos = sorted(captures_dir.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+        captures_photos = sorted(
+            captures_dir.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True
+        )
         if captures_photos:
             captures_list.append(
                 {
@@ -378,17 +380,17 @@ def build_gallery_html() -> str:
 
     total = sum(s["count"] for s in species_list)
     captures_total = sum(s["count"] for s in captures_list)
-    
+
     onboarding_banner = ""
     if not _is_onboarding_complete():
         onboarding_banner = (
             '<div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:8px;'
-            'padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;'
+            "padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;"
             'justify-content:space-between;">'
-            '<span>Setup not completed yet.</span>'
+            "<span>Setup not completed yet.</span>"
             '<a href="/onboarding" style="background:#2e7d32;color:white;padding:0.5rem 1.2rem;'
             'border-radius:6px;text-decoration:none;font-weight:600;">Start Setup Wizard</a>'
-            '</div>'
+            "</div>"
         )
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -438,7 +440,7 @@ def build_gallery_html() -> str:
         <strong>{total}</strong> classified photos
         {" &middot; <strong>" + str(captures_total) + "</strong> unprocessed captures" if captures_total > 0 else ""}
     </div>
-    {captures_cards if captures_cards else ''}
+    {captures_cards if captures_cards else ""}
     {species_cards if species_cards else '<div class="empty">No classified photos yet. The classifier will populate this page as birds are detected.</div>'}
 </div>
 </body>
