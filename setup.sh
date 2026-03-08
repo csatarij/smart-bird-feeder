@@ -30,10 +30,9 @@ echo ""
 echo "[1/6] Installing system packages..."
 PACKAGES="python3-pip python3-venv python3-opencv python3-numpy python3-pil sqlite3 git"
 
-# Pick the right BLAS package — apt-cache show can succeed even when
-# there is no installation candidate, so check apt-cache policy instead.
-if apt-cache policy libatlas-base-dev 2>/dev/null | grep -q 'Candidate:' \
-   && ! apt-cache policy libatlas-base-dev 2>/dev/null | grep -q 'Candidate: (none)'; then
+# Pick the right BLAS package — apt-cache policy can report a candidate
+# that isn't actually installable, so do a dry-run install to be sure.
+if sudo apt-get install --dry-run libatlas-base-dev >/dev/null 2>&1; then
     PACKAGES="$PACKAGES libatlas-base-dev"
 else
     echo "  Note: libatlas-base-dev unavailable, using libopenblas-dev"
