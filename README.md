@@ -95,6 +95,8 @@ chmod +x setup.sh
 
 The setup script installs system packages, creates a virtualenv, downloads the ML model, and optionally installs systemd services (motion detector, classifier, and web server) for auto-start on boot.
 
+Once setup finishes, open `http://<pi-ip>:8080/onboarding` in your browser to run the guided setup wizard (see [Onboarding Wizard](#onboarding-wizard) below).
+
 ### Manual Setup
 
 #### 1. OS & Dependencies
@@ -105,9 +107,6 @@ The setup script installs system packages, creates a virtualenv, downloads the M
 
 # Install system packages
 sudo apt-get update
-
-# NOTE: libatlas-base-dev was removed in Debian Trixie (2025+).
-# Use libopenblas-dev instead if you're on Trixie/Bookworm+.
 sudo apt-get install -y python3-pip python3-venv python3-opencv \
     python3-picamera2 python3-numpy python3-pil sqlite3 git libopenblas-dev
 
@@ -151,6 +150,20 @@ The web server will be available at `http://<pi-ip>:8080`.
 
 ---
 
+## Onboarding Wizard
+
+After running `setup.sh` (or starting the web server manually), open `http://<pi-ip>:8080/onboarding` in your browser. The wizard walks you through five steps to configure your feeder:
+
+1. **Camera Check** — takes a test photo to verify the camera is connected and working.
+2. **Orientation** — confirms the image is right-side-up and lets you apply 0°/90°/180°/270° rotation.
+3. **Focus Check** — analyzes sharpness and warns if the lens needs cleaning or adjusting.
+4. **Crop Area (ROI)** — drag a rectangle over the test photo to define the region of interest. Only this area is captured and saved (everything outside is discarded for privacy).
+5. **Review & Finish** — shows a summary of your configuration (camera, model, ROI) and the status of each systemd service, with controls to start/stop/restart them.
+
+Until the wizard is completed, a banner on the main page links to `/onboarding`. Once finished, the flag is saved and the banner disappears.
+
+---
+
 ## Web Server
 
 The built-in web server lets you browse bird photos and monitor the system from any device on your local network — phone, tablet, or laptop. It uses only the Python standard library (no Flask needed) and runs with a ~30MB memory footprint.
@@ -158,6 +171,7 @@ The built-in web server lets you browse bird photos and monitor the system from 
 | URL | Description |
 |-----|-------------|
 | `http://<pi-ip>:8080/` | Photo gallery — browse by species, see thumbnails |
+| `http://<pi-ip>:8080/onboarding` | **Guided setup wizard** — camera, orientation, focus, ROI, services |
 | `http://<pi-ip>:8080/stats` | Capture statistics — species rankings, daily/hourly charts |
 | `http://<pi-ip>:8080/calibration` | **Confidence calibration & sightings inspector** |
 | `http://<pi-ip>:8080/health` | Live health dashboard — disk, processes, recent sightings |
