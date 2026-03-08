@@ -1402,7 +1402,10 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
     if LOGGER:
         LOGGER.info(
             "Test photo capture starting: cam_type=%s, resolution=%dx%d, rotation=%d",
-            cam_type, w, h, rotation,
+            cam_type,
+            w,
+            h,
+            rotation,
         )
 
     frame = None
@@ -1443,7 +1446,8 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
                     if LOGGER:
                         LOGGER.info(
                             "Picamera2 capture succeeded: frame shape=%s, dtype=%s",
-                            frame.shape, frame.dtype,
+                            frame.shape,
+                            frame.dtype,
                         )
                     cam.stop()
                 finally:
@@ -1471,20 +1475,14 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
                         LOGGER.info("Legacy PiCamera capture succeeded")
                 except ImportError:
                     if LOGGER:
-                        LOGGER.warning(
-                            "No picamera library found, falling back to USB webcam"
-                        )
+                        LOGGER.warning("No picamera library found, falling back to USB webcam")
                     cam_type = "usb"
                 except Exception as e:
                     if LOGGER:
-                        LOGGER.error(
-                            "Legacy PiCamera capture failed: %s", e, exc_info=True
-                        )
+                        LOGGER.error("Legacy PiCamera capture failed: %s", e, exc_info=True)
             except Exception as e:
                 if LOGGER:
-                    LOGGER.error(
-                        "Picamera2 capture failed: %s", e, exc_info=True
-                    )
+                    LOGGER.error("Picamera2 capture failed: %s", e, exc_info=True)
 
         if cam_type == "usb" or (cam_type == "picamera" and frame is None):
             if LOGGER:
@@ -1523,9 +1521,7 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
 
     if frame is None:
         if LOGGER:
-            LOGGER.error(
-                "Test photo capture produced no frame. All camera backends failed."
-            )
+            LOGGER.error("Test photo capture produced no frame. All camera backends failed.")
         return None
 
     # Apply rotation
@@ -2767,9 +2763,7 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
                     )
                 error_msg = "Camera capture failed. Check camera connection." + hint
                 if LOGGER:
-                    LOGGER.error(
-                        "Onboarding capture failed. motion_active=%s", motion_active
-                    )
+                    LOGGER.error("Onboarding capture failed. motion_active=%s", motion_active)
                 self._serve_json({"ok": False, "error": error_msg})
         except Exception as e:
             if LOGGER:
