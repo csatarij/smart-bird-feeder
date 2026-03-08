@@ -4,9 +4,9 @@ After=network.target bird-capture.service bird-classify.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/smart-bird-feeder
-ExecStart=/home/pi/smart-bird-feeder/venv/bin/python3 webserver.py
+User=csatarij
+WorkingDirectory=/home/csatarij/smart-bird-feeder
+ExecStart=/home/csatarij/smart-bird-feeder/venv/bin/python3 webserver.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
