@@ -1293,16 +1293,19 @@ def _capture_test_photo(config: dict) -> Path | None:
                 from picamera2 import Picamera2
 
                 cam = Picamera2()
-                cam_config = cam.create_still_configuration(
-                    main={"size": (w, h), "format": "RGB888"}
-                )
-                cam.configure(cam_config)
-                cam.start()
-                import time
+                try:
+                    cam_config = cam.create_still_configuration(
+                        main={"size": (w, h), "format": "RGB888"}
+                    )
+                    cam.configure(cam_config)
+                    cam.start()
+                    import time
 
-                time.sleep(cam_cfg.get("warmup_seconds", 3))
-                frame = cam.capture_array()
-                cam.stop()
+                    time.sleep(cam_cfg.get("warmup_seconds", 3))
+                    frame = cam.capture_array()
+                    cam.stop()
+                finally:
+                    cam.close()
             except ImportError:
                 try:
                     import picamera
