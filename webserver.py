@@ -326,6 +326,23 @@ def build_gallery_html() -> str:
                     }
                 )
 
+    # Add captures folder photos
+    captures_list = []
+    captures_dir = DATA_DIR / "captures"
+    if captures_dir.exists():
+        captures_photos = sorted(
+            captures_dir.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True
+        )
+        if captures_photos:
+            captures_list.append(
+                {
+                    "name": "Unprocessed Captures",
+                    "dir": "captures",
+                    "count": len(captures_photos),
+                    "recent": [p.name for p in captures_photos[:12]],
+                }
+            )
+
     species_cards = ""
     for sp in species_list:
         thumbs = ""
@@ -343,7 +360,27 @@ def build_gallery_html() -> str:
         </div>
         """
 
+    # Add captures section
+    captures_cards = ""
+    for sp in captures_list:
+        thumbs = ""
+        for photo in sp["recent"]:
+            thumbs += (
+                f'<a href="/captures/{photo}" target="_blank">'
+                f'<img src="/captures/{photo}" loading="lazy" '
+                f'alt="{sp["name"]}">'
+                f"</a>\n"
+            )
+        captures_cards += f"""
+        <div class="species-card">
+            <h2>{sp["name"]} <span class="badge">{sp["count"]}</span></h2>
+            <div class="photo-grid">{thumbs}</div>
+        </div>
+        """
+
     total = sum(s["count"] for s in species_list)
+    captures_total = sum(s["count"] for s in captures_list)
+
     onboarding_banner = ""
     if not _is_onboarding_complete():
         onboarding_banner = (
@@ -387,7 +424,7 @@ def build_gallery_html() -> str:
 </head>
 <body>
 <nav>
-    <strong>Bird Feeder</strong>
+    <a href="/" style="color: white; text-decoration: none;"><strong>Bird Feeder</strong></a>
     <div>
         <a href="/">Photos</a>
         <a href="/stats">Statistics</a>
@@ -401,7 +438,9 @@ def build_gallery_html() -> str:
     <div class="summary">
         <strong>{len(species_list)}</strong> species &middot;
         <strong>{total}</strong> classified photos
+        {" &middot; <strong>" + str(captures_total) + "</strong> unprocessed captures" if captures_total > 0 else ""}
     </div>
+    {captures_cards if captures_cards else ""}
     {species_cards if species_cards else '<div class="empty">No classified photos yet. The classifier will populate this page as birds are detected.</div>'}
 </div>
 </body>
@@ -2395,6 +2434,8 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             self._serve_onboarding_test_photo()
         elif path.startswith("/photos/"):
             self._serve_photo(path[len("/photos/") :])
+        elif path.startswith("/captures/"):
+            self._serve_capture_photo(path[len("/captures/") :])
         else:
             self._send_error(404, "Not found")
 
@@ -2995,6 +3036,37 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             self.wfile.write(data)
         except Exception:
             self._send_error(500, "Error reading file")
+
+    def _serve_capture_photo(self, filename: str):
+        """Serve a photo from the captures directory."""
+        captures_dir = DATA_DIR / "captures"
+        photo_path = captures_dir / filename
+
+        # Prevent path traversal
+        try:
+            photo_path = photo_path.resolve()
+            if not str(photo_path).startswith(str(captures_dir.resolve())):
+                self._send_error(403, "Forbidden")
+                return
+        except (ValueError, OSError):
+            self._send_error(400, "Bad request")
+            return
+
+        if not photo_path.is_file():
+            self._send_error(404, "Capture not found")
+            return
+
+        content_type = mimetypes.guess_type(str(photo_path))[0] or "image/jpeg"
+        try:
+            data = photo_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self._send_error(500, "Error reading capture file")
 
     def _send_error(self, code: int, message: str):
         body = f"<h1>{code}</h1><p>{message}</p>".encode("utf-8")
