@@ -1558,6 +1558,27 @@ def build_onboarding_html() -> str:
     .dot-unknown {{ background: #ff9800; }}
 
     .loading {{ color: #999; font-style: italic; }}
+
+    /* Persistent service control panel */
+    .svc-panel {{ background: #fff; border: 1px solid #ddd; border-radius: 8px;
+                  padding: 0.8rem 1rem; margin-bottom: 1.2rem;
+                  box-shadow: 0 1px 4px rgba(0,0,0,0.06); }}
+    .svc-panel h3 {{ margin: 0 0 0.5rem 0; font-size: 0.95rem; color: #555; }}
+    .svc-panel-grid {{ display: flex; flex-wrap: wrap; gap: 0.6rem; }}
+    .svc-chip {{ display: inline-flex; align-items: center; gap: 0.4rem;
+                 background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 20px;
+                 padding: 0.3rem 0.5rem 0.3rem 0.7rem; font-size: 0.85rem; }}
+    .svc-chip .dot {{ margin: 0; }}
+    .svc-chip-name {{ font-weight: 600; white-space: nowrap; }}
+    .svc-chip-btns {{ display: inline-flex; gap: 2px; margin-left: 0.2rem; }}
+    .svc-chip-btns button {{ padding: 2px 8px; font-size: 0.75rem; border: 1px solid #ccc;
+                              background: #fff; border-radius: 4px; cursor: pointer;
+                              transition: background 0.15s; }}
+    .svc-chip-btns button:hover {{ background: #e8e8e8; }}
+    .svc-chip-btns button.svc-stop {{ color: #c62828; border-color: #ef9a9a; }}
+    .svc-chip-btns button.svc-stop:hover {{ background: #ffebee; }}
+    .svc-chip-btns button.svc-start {{ color: #2e7d32; border-color: #a5d6a7; }}
+    .svc-chip-btns button.svc-start:hover {{ background: #e8f5e9; }}
 </style>
 </head>
 <body>
@@ -1572,6 +1593,14 @@ def build_onboarding_html() -> str:
     </div>
 </nav>
 <div class="container">
+    <!-- Persistent service control panel — always visible -->
+    <div class="svc-panel">
+        <h3>Services</h3>
+        <div class="svc-panel-grid" id="svc-panel-grid">
+            <span class="loading">Loading services...</span>
+        </div>
+    </div>
+
     <div class="stepper">
         <div class="step-indicator active" onclick="goStep(0)">1. Camera</div>
         <div class="step-indicator" onclick="goStep(1)">2. Orientation</div>
@@ -2130,14 +2159,24 @@ function loadSummary() {{
                 svcHtml += '<div class="service-row">' +
                     '<span class="service-name">' + s.name + '</span>' +
                     '<span class="service-status"><span class="dot ' + dotCls + '"></span>' +
-                    statusLabel + '</span>' +
-                    '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
-                    'onclick="serviceAction(\\'' + s.unit + '\\', \\'restart\\')">' +
-                    (s.active === 'active' ? 'Restart' : 'Start') + '</button>' +
-                    '</div>';
+                    statusLabel + '</span>';
+                if (s.active === 'active') {{
+                    svcHtml +=
+                        '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
+                        'onclick="serviceAction(\\'' + s.unit + '\\', \\'stop\\')">Stop</button>' +
+                        '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;margin-left:4px;" ' +
+                        'onclick="serviceAction(\\'' + s.unit + '\\', \\'restart\\')">Restart</button>';
+                }} else {{
+                    svcHtml +=
+                        '<button class="btn btn-secondary" style="padding:4px 12px;font-size:0.82rem;" ' +
+                        'onclick="serviceAction(\\'' + s.unit + '\\', \\'start\\')">Start</button>';
+                }}
+                svcHtml += '</div>';
             }});
             if (!svcHtml) svcHtml = '<div class="status status-info">No systemd services installed. Run setup.sh to install them.</div>';
             document.getElementById('services-content').innerHTML = svcHtml;
+            // Keep persistent panel in sync
+            refreshServicePanel();
         }})
         .catch(e => {{
             document.getElementById('summary-content').innerHTML =
@@ -2153,11 +2192,59 @@ function serviceAction(unit, action) {{
     }})
     .then(r => r.json())
     .then(data => {{
-        if (data.ok) loadSummary();
-        else alert('Service error: ' + (data.error || 'unknown'));
+        if (data.ok) {{
+            loadSummary();
+            refreshServicePanel();
+        }} else {{
+            alert('Service error: ' + (data.error || 'unknown'));
+        }}
     }})
     .catch(e => alert('Network error: ' + e));
 }}
+
+/* ── Persistent service control panel ─────────────────────────────── */
+function refreshServicePanel() {{
+    fetch('/api/onboarding/status')
+        .then(r => r.json())
+        .then(data => {{
+            const grid = document.getElementById('svc-panel-grid');
+            if (!data.services || data.services.length === 0) {{
+                grid.innerHTML = '<span style="color:#999;font-size:0.85rem;">No services installed.</span>';
+                return;
+            }}
+            let html = '';
+            data.services.forEach(s => {{
+                const isActive = s.active === 'active';
+                const dotCls = isActive ? 'dot-running' :
+                               s.active === 'inactive' ? 'dot-stopped' : 'dot-unknown';
+                const label = isActive ? 'running' :
+                              s.active === 'inactive' ? 'stopped' : (s.active || '?');
+                html += '<div class="svc-chip">' +
+                    '<span class="dot ' + dotCls + '"></span>' +
+                    '<span class="svc-chip-name">' + s.name + '</span> ' +
+                    '<span style="color:#888;font-size:0.8rem;">' + label + '</span>' +
+                    '<span class="svc-chip-btns">';
+                if (isActive) {{
+                    html += '<button class="svc-stop" onclick="serviceAction(\\'' + s.unit +
+                            '\\', \\'stop\\')">Stop</button>';
+                    html += '<button onclick="serviceAction(\\'' + s.unit +
+                            '\\', \\'restart\\')">Restart</button>';
+                }} else {{
+                    html += '<button class="svc-start" onclick="serviceAction(\\'' + s.unit +
+                            '\\', \\'start\\')">Start</button>';
+                }}
+                html += '</span></div>';
+            }});
+            grid.innerHTML = html;
+        }})
+        .catch(() => {{
+            document.getElementById('svc-panel-grid').innerHTML =
+                '<span style="color:#c62828;font-size:0.85rem;">Could not load services.</span>';
+        }});
+}}
+
+// Load service panel on page load
+refreshServicePanel();
 
 function finishOnboarding() {{
     fetch('/api/onboarding/complete', {{method: 'POST'}})
