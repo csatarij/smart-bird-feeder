@@ -23,9 +23,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import cv2
-import numpy as np
-
 from privacy import extract_roi, save_private_image
 from utils import PROJECT_ROOT, ensure_directories, load_config, setup_logging
 
