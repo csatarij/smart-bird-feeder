@@ -1270,6 +1270,20 @@ def _is_onboarding_complete() -> bool:
         return False
 
 
+def _is_service_active(service_name: str) -> bool:
+    """Check whether a systemd service is currently active (running)."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", f"{service_name}.service"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() == "active"
+    except Exception:
+        return False
+
+
 def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None:
     """Take a single test photo for the onboarding wizard.
 
@@ -1291,12 +1305,20 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
     output_path = PROJECT_ROOT / "data" / "onboarding_test.jpg"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    if LOGGER:
+        LOGGER.info(
+            "Test photo capture starting: cam_type=%s, resolution=%dx%d, rotation=%d",
+            cam_type, w, h, rotation,
+        )
+
     frame = None
     try:
         if cam_type == "picamera":
             try:
                 from picamera2 import Picamera2
 
+                if LOGGER:
+                    LOGGER.info("Attempting Picamera2 initialization...")
                 cam = Picamera2()
                 try:
                     cam_config = cam.create_still_configuration(
@@ -1317,19 +1339,30 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
                             controls["Brightness"] = float(tuning["brightness"])
                         if controls:
                             cam.set_controls(controls)
+                            if LOGGER:
+                                LOGGER.info("Applied Picamera2 tuning controls: %s", controls)
                             # Extra settle time for controls to take effect
                             time.sleep(1)
 
                     time.sleep(cam_cfg.get("warmup_seconds", 3))
                     frame = cam.capture_array()
+                    if LOGGER:
+                        LOGGER.info(
+                            "Picamera2 capture succeeded: frame shape=%s, dtype=%s",
+                            frame.shape, frame.dtype,
+                        )
                     cam.stop()
                 finally:
                     cam.close()
             except ImportError:
+                if LOGGER:
+                    LOGGER.warning("picamera2 not available, trying legacy picamera")
                 try:
                     import picamera
                     import picamera.array
 
+                    if LOGGER:
+                        LOGGER.info("Attempting legacy PiCamera initialization...")
                     cam = picamera.PiCamera()
                     cam.resolution = (w, h)
                     cam.rotation = rotation
@@ -1340,25 +1373,65 @@ def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None
                         cam.capture(output, "rgb")
                         frame = output.array
                     cam.close()
+                    if LOGGER:
+                        LOGGER.info("Legacy PiCamera capture succeeded")
                 except ImportError:
+                    if LOGGER:
+                        LOGGER.warning(
+                            "No picamera library found, falling back to USB webcam"
+                        )
                     cam_type = "usb"
+                except Exception as e:
+                    if LOGGER:
+                        LOGGER.error(
+                            "Legacy PiCamera capture failed: %s", e, exc_info=True
+                        )
+            except Exception as e:
+                if LOGGER:
+                    LOGGER.error(
+                        "Picamera2 capture failed: %s", e, exc_info=True
+                    )
 
         if cam_type == "usb" or (cam_type == "picamera" and frame is None):
+            if LOGGER:
+                LOGGER.info("Attempting USB webcam capture (device 0)...")
             cap = cv2.VideoCapture(0)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            import time
+            if not cap.isOpened():
+                if LOGGER:
+                    LOGGER.error(
+                        "USB webcam failed to open. The camera device may be "
+                        "busy (e.g. held by the motion detector service) or "
+                        "not connected."
+                    )
+            else:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+                import time
 
-            time.sleep(cam_cfg.get("warmup_seconds", 3))
-            ret, bgr = cap.read()
-            cap.release()
-            if ret:
-                frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                time.sleep(cam_cfg.get("warmup_seconds", 3))
+                ret, bgr = cap.read()
+                cap.release()
+                if ret:
+                    frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                    if LOGGER:
+                        LOGGER.info("USB webcam capture succeeded")
+                else:
+                    if LOGGER:
+                        LOGGER.error(
+                            "USB webcam read() returned no frame. The camera "
+                            "may be busy or not providing data."
+                        )
 
-    except Exception:
+    except Exception as e:
+        if LOGGER:
+            LOGGER.error("Test photo capture failed with unexpected error: %s", e, exc_info=True)
         return None
 
     if frame is None:
+        if LOGGER:
+            LOGGER.error(
+                "Test photo capture produced no frame. All camera backends failed."
+            )
         return None
 
     # Apply rotation
@@ -2489,14 +2562,37 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
     def _handle_onboarding_capture(self):
         """POST /api/onboarding/capture — take a test photo."""
         try:
+            # Check if the motion detector service is running (it holds the
+            # camera exclusively on most Pi setups).
+            motion_active = _is_service_active("bird-capture")
+            if motion_active and LOGGER:
+                LOGGER.warning(
+                    "Motion detector service (bird-capture) is running. "
+                    "It may hold the camera device exclusively, preventing "
+                    "the test capture."
+                )
+
             path = _capture_test_photo(CONFIG)
             if path:
                 self._serve_json({"ok": True, "photo_url": "/api/onboarding/test-photo"})
             else:
-                self._serve_json(
-                    {"ok": False, "error": "Camera capture failed. Check camera connection."}
-                )
+                hint = ""
+                if motion_active:
+                    hint = (
+                        " The motion detector service (bird-capture) is "
+                        "currently running and may be holding the camera. "
+                        "Try stopping it first from the Services step or run: "
+                        "sudo systemctl stop bird-capture"
+                    )
+                error_msg = "Camera capture failed. Check camera connection." + hint
+                if LOGGER:
+                    LOGGER.error(
+                        "Onboarding capture failed. motion_active=%s", motion_active
+                    )
+                self._serve_json({"ok": False, "error": error_msg})
         except Exception as e:
+            if LOGGER:
+                LOGGER.error("Onboarding capture handler error: %s", e, exc_info=True)
             self._serve_json({"ok": False, "error": str(e)})
 
     def _handle_onboarding_rotate(self):
@@ -2550,7 +2646,13 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
 
             path = _capture_test_photo(CONFIG, tuning=tuning or None)
             if not path:
-                self._serve_json({"ok": False, "error": "Camera capture failed."})
+                hint = ""
+                if _is_service_active("bird-capture"):
+                    hint = (
+                        " The motion detector service is running and may be "
+                        "holding the camera. Try stopping it first."
+                    )
+                self._serve_json({"ok": False, "error": "Camera capture failed." + hint})
                 return
 
             from privacy import check_blurriness
