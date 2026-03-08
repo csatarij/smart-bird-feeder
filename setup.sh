@@ -105,7 +105,8 @@ else
     for service in bird-capture bird-classify bird-webserver; do
         SRC="$PROJECT_DIR/${service}.service"
         DEST="/etc/systemd/system/${service}.service"
-        RENDERED=$(sed "s|/home/pi/smart-bird-feeder|$PROJECT_DIR|g" "$SRC")
+        RENDERED=$(sed -e "s|/home/pi/smart-bird-feeder|$PROJECT_DIR|g" \
+                       -e "s|^User=pi$|User=$(whoami)|g" "$SRC")
 
         # Only copy if content changed (avoids unnecessary daemon-reload)
         if [ ! -f "$DEST" ] || [ "$(cat "$DEST")" != "$RENDERED" ]; then
