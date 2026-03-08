@@ -1270,8 +1270,13 @@ def _is_onboarding_complete() -> bool:
         return False
 
 
-def _capture_test_photo(config: dict) -> Path | None:
+def _capture_test_photo(config: dict, tuning: dict | None = None) -> Path | None:
     """Take a single test photo for the onboarding wizard.
+
+    Args:
+        config: Full application config dict.
+        tuning: Optional dict with camera tuning overrides for Picamera2:
+                ``{"sharpness": float, "contrast": float, "brightness": float}``.
 
     Returns the path to the saved JPEG, or None on failure.
     """
@@ -1300,6 +1305,20 @@ def _capture_test_photo(config: dict) -> Path | None:
                     cam.configure(cam_config)
                     cam.start()
                     import time
+
+                    # Apply tuning controls if provided (Picamera2 only)
+                    if tuning:
+                        controls = {}
+                        if "sharpness" in tuning:
+                            controls["Sharpness"] = float(tuning["sharpness"])
+                        if "contrast" in tuning:
+                            controls["Contrast"] = float(tuning["contrast"])
+                        if "brightness" in tuning:
+                            controls["Brightness"] = float(tuning["brightness"])
+                        if controls:
+                            cam.set_controls(controls)
+                            # Extra settle time for controls to take effect
+                            time.sleep(1)
 
                     time.sleep(cam_cfg.get("warmup_seconds", 3))
                     frame = cam.capture_array()
@@ -1445,6 +1464,14 @@ def build_onboarding_html() -> str:
                    background: #e0e0e0; margin: 0.5rem 0; }}
     .blur-fill {{ height: 100%; border-radius: 12px; transition: width 0.5s; }}
 
+    /* Focus adjustment controls */
+    .focus-controls {{ display: flex; flex-direction: column; gap: 0.6rem; }}
+    .focus-controls label {{ display: flex; align-items: center; gap: 0.5rem;
+                             font-size: 0.95rem; flex-wrap: wrap; }}
+    .focus-controls input[type=range] {{ flex: 1; min-width: 150px; accent-color: #4caf50; }}
+    .focus-controls span {{ min-width: 2.5em; text-align: right; font-weight: 600;
+                            font-variant-numeric: tabular-nums; }}
+
     /* Service rows */
     .service-row {{ display: flex; align-items: center; gap: 1rem; padding: 0.6rem 0;
                     border-bottom: 1px solid #eee; }}
@@ -1531,11 +1558,39 @@ def build_onboarding_html() -> str:
         <div class="card">
             <h2>Step 3: Focus Check</h2>
             <p>Checking how sharp the test photo is. If the image is blurry, clean the lens
-               or adjust the camera focus.</p>
+               or adjust the camera focus, then retake to check again.</p>
             <div id="blur-preview"></div>
             <div id="blur-result" style="margin-top: 1rem;">
                 <span class="loading">Analyzing...</span>
             </div>
+        </div>
+        <div class="card" style="margin-top: 1rem;">
+            <h3>Adjust &amp; Retake</h3>
+            <p>Tweak camera software settings below (Picamera2 only), or physically adjust
+               your lens, then press <strong>Retake &amp; Recheck</strong>.</p>
+            <div class="focus-controls">
+                <label>Sharpness: <span id="val-sharpness">1.0</span>
+                    <input type="range" id="ctrl-sharpness" min="0" max="16" step="0.5" value="1.0"
+                           oninput="document.getElementById('val-sharpness').textContent = this.value">
+                </label>
+                <label>Contrast: <span id="val-contrast">1.0</span>
+                    <input type="range" id="ctrl-contrast" min="0" max="8" step="0.25" value="1.0"
+                           oninput="document.getElementById('val-contrast').textContent = this.value">
+                </label>
+                <label>Brightness: <span id="val-brightness">0.0</span>
+                    <input type="range" id="ctrl-brightness" min="-1" max="1" step="0.1" value="0.0"
+                           oninput="document.getElementById('val-brightness').textContent = this.value">
+                </label>
+            </div>
+            <div style="margin-top: 0.8rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn btn-primary" id="btn-retake-focus" onclick="retakeAndCheck()">
+                    Retake &amp; Recheck
+                </button>
+                <button class="btn btn-secondary" onclick="resetFocusControls()">
+                    Reset Sliders
+                </button>
+            </div>
+            <div id="retake-status" style="margin-top: 0.5rem;"></div>
         </div>
         <div class="btn-nav">
             <button class="btn btn-secondary" onclick="goStep(1)">&larr; Back</button>
@@ -1713,6 +1768,65 @@ function checkBlurriness() {{
         .catch(e => {{
             result.innerHTML = '<div class="status status-error">Error: ' + e + '</div>';
         }});
+}}
+
+function retakeAndCheck() {{
+    const btn = document.getElementById('btn-retake-focus');
+    const status = document.getElementById('retake-status');
+    const result = document.getElementById('blur-result');
+    btn.disabled = true;
+    btn.textContent = 'Capturing...';
+    status.innerHTML = '<div class="status status-info">Retaking photo with current settings...</div>';
+
+    const body = {{
+        sharpness: parseFloat(document.getElementById('ctrl-sharpness').value),
+        contrast: parseFloat(document.getElementById('ctrl-contrast').value),
+        brightness: parseFloat(document.getElementById('ctrl-brightness').value)
+    }};
+
+    fetch('/api/onboarding/focus-adjust', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify(body)
+    }})
+    .then(r => r.json())
+    .then(data => {{
+        btn.disabled = false;
+        btn.textContent = 'Retake & Recheck';
+        if (!data.ok) {{
+            status.innerHTML = '<div class="status status-error">' +
+                (data.error || 'Capture failed') + '</div>';
+            return;
+        }}
+        testPhotoUrl = data.photo_url + '?t=' + Date.now();
+        document.getElementById('blur-preview').innerHTML =
+            '<div class="photo-frame"><img src="' + testPhotoUrl + '" style="max-height:300px;"></div>';
+        status.innerHTML = '<div class="status status-ok">Photo retaken successfully.</div>';
+
+        const maxScore = 500;
+        const pct = Math.min(100, Math.round((data.score / maxScore) * 100));
+        const color = data.is_blurry ? '#f44336' : (data.score < 300 ? '#ff9800' : '#4caf50');
+        result.innerHTML =
+            '<div class="blur-meter"><div class="blur-fill" style="width:' + pct +
+            '%;background:' + color + '"></div></div>' +
+            '<div class="status status-' + (data.is_blurry ? 'warn' : 'ok') + '">' +
+            '<strong>Sharpness score: ' + data.score + '</strong> &mdash; ' +
+            data.assessment + '</div>';
+    }})
+    .catch(e => {{
+        btn.disabled = false;
+        btn.textContent = 'Retake & Recheck';
+        status.innerHTML = '<div class="status status-error">Error: ' + e + '</div>';
+    }});
+}}
+
+function resetFocusControls() {{
+    document.getElementById('ctrl-sharpness').value = 1.0;
+    document.getElementById('val-sharpness').textContent = '1';
+    document.getElementById('ctrl-contrast').value = 1.0;
+    document.getElementById('val-contrast').textContent = '1';
+    document.getElementById('ctrl-brightness').value = 0.0;
+    document.getElementById('val-brightness').textContent = '0';
 }}
 
 /* ── ROI Selector (draggable rectangle) ────────────────────────────── */
@@ -2042,6 +2156,8 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             self._handle_onboarding_capture()
         elif path == "/api/onboarding/rotate":
             self._handle_onboarding_rotate()
+        elif path == "/api/onboarding/focus-adjust":
+            self._handle_onboarding_focus_adjust()
         elif path == "/api/onboarding/roi":
             self._handle_onboarding_roi()
         elif path == "/api/onboarding/services":
@@ -2420,6 +2536,33 @@ class BirdFeederHandler(BaseHTTPRequestHandler):
             self._serve_json(result)
         except Exception as e:
             self._serve_json({"error": str(e)})
+
+    def _handle_onboarding_focus_adjust(self):
+        """POST /api/onboarding/focus-adjust — retake photo with tuning, return blur analysis."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            tuning = {}
+            if length:
+                body = json.loads(self.rfile.read(length))
+                for key in ("sharpness", "contrast", "brightness"):
+                    if key in body:
+                        tuning[key] = float(body[key])
+
+            path = _capture_test_photo(CONFIG, tuning=tuning or None)
+            if not path:
+                self._serve_json({"ok": False, "error": "Camera capture failed."})
+                return
+
+            from privacy import check_blurriness
+
+            blur = check_blurriness(path)
+            self._serve_json({
+                "ok": True,
+                "photo_url": "/api/onboarding/test-photo",
+                **blur,
+            })
+        except Exception as e:
+            self._serve_json({"ok": False, "error": str(e)})
 
     def _handle_onboarding_roi(self):
         """POST /api/onboarding/roi — save ROI coordinates to local config."""
