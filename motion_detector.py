@@ -41,32 +41,48 @@ def _acquire_lock():
     """Acquire an exclusive lock to ensure only one instance runs at a time.
 
     Uses flock() so the lock is automatically released if the process dies.
+    The lock file is deliberately never deleted so that every instance flocks
+    the *same* inode — deleting the file would let a new instance create a
+    different inode and bypass the lock held by a still-running process.
     """
     global _lock_file
     _LOCK_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _lock_file = open(_LOCK_FILE_PATH, "w")
+    # Open without O_TRUNC so we don't clobber the file while another
+    # instance still holds a lock on this inode.
+    fd = os.open(str(_LOCK_FILE_PATH), os.O_WRONLY | os.O_CREAT, 0o644)
+    _lock_file = os.fdopen(fd, "w")
     try:
         fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        _lock_file.close()
+        _lock_file = None
         print(
             "ERROR: Another motion_detector instance is already running "
             f"(lock file: {_LOCK_FILE_PATH}). Exiting.",
             file=sys.stderr,
         )
         sys.exit(0)
+    # We hold the exclusive lock — safe to write our PID.
+    _lock_file.seek(0)
+    _lock_file.truncate()
     _lock_file.write(str(os.getpid()))
     _lock_file.flush()
     atexit.register(_release_lock)
 
 
 def _release_lock():
-    """Release the lock file on normal exit."""
+    """Release the lock file on normal exit.
+
+    The lock file is intentionally kept on disk so that all instances
+    always contend on the same inode.  Deleting it would create a race
+    where a new instance locks a fresh inode while an old one still
+    holds a lock on the (now-unlinked) original inode.
+    """
     global _lock_file
     if _lock_file:
         try:
             fcntl.flock(_lock_file, fcntl.LOCK_UN)
             _lock_file.close()
-            _LOCK_FILE_PATH.unlink(missing_ok=True)
         except Exception:
             pass
         _lock_file = None
